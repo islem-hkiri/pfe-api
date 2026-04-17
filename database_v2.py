@@ -45,7 +45,7 @@ def init_db():
         cause TEXT NOT NULL,
         debut_panne TEXT NOT NULL,
         fin_panne TEXT,
-        statut TEXT DEFAULT '🔴 Ouvert'
+        statut TEXT DEFAULT ' Ouvert'
     )
     """)
 
@@ -76,7 +76,7 @@ def init_db():
         quantite INTEGER,
         date_besoin TEXT,
         shift TEXT,
-        statut TEXT DEFAULT '🟠En attente',
+        statut TEXT DEFAULT 'En attente',
         urgence TEXT,
         heure_demande TEXT,
         debut_production TEXT,

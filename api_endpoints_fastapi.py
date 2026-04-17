@@ -39,11 +39,11 @@ def get_etat(shift: str = "A"):
             SELECT id, statut, quantite
             FROM Demandes
             WHERE shift = ? 
-            AND statut IN ('🟢En cours', '🟠En attente')
+            AND statut IN ('En cours', 'En attente')
             ORDER BY 
                 CASE 
-                    WHEN statut = '🟢En cours' THEN 1 
-                    WHEN statut = '🟠En attente' THEN 2 
+                    WHEN statut = 'En cours' THEN 1 
+                    WHEN statut = 'En attente' THEN 2 
                 END,
                 id ASC
             LIMIT 1
@@ -60,17 +60,15 @@ def get_etat(shift: str = "A"):
             }
 
         demande_id, statut, qte = demande
-
         return {
             "demande_id": demande_id,
-            "statut": statut,
+            "statut": statut,          # "En cours" ou "En attente"
             "quantite_requise": qte,
-            "machine_disponible": (statut != '🟢En cours')
+            "machine_disponible": (statut != 'En cours')
         }
 
     except Exception as e:
         return {"error": str(e)}
-
     finally:
         try:
             conn.close()
@@ -87,7 +85,7 @@ def lancer_auto(req: ShiftRequest):
     
     cursor.execute("""
         SELECT id FROM Demandes 
-        WHERE shift = ? AND statut = '🟠En attente' 
+        WHERE shift = ? AND statut = 'En attente' 
         ORDER BY id ASC LIMIT 1
     """, (req.shift,))
     
@@ -95,11 +93,11 @@ def lancer_auto(req: ShiftRequest):
     
     if not demande:
         conn.close()
-        return {"success": False}
+        return {"success": False, "message": "Aucune demande en attente"}
 
     cursor.execute("""
         UPDATE Demandes 
-        SET statut = '🟢En cours', debut_production = datetime('now') 
+        SET statut = 'En cours', debut_production = datetime('now') 
         WHERE id = ?
     """, (demande[0],))
     
@@ -125,7 +123,7 @@ def increment(req: ShiftRequest):
     cursor.execute("""
         SELECT id, quantite, reference 
         FROM Demandes 
-        WHERE shift = ? AND statut = '🟢En cours'
+        WHERE shift = ? AND statut = 'En cours'
         LIMIT 1
     """, (req.shift,))
     
