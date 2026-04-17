@@ -1,3 +1,7 @@
 fastapi
 uvicorn
 python-multipart
+streamlit
+pandas
+openpyxl
+streamlit-autorefresh
