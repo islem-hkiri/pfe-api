@@ -70,6 +70,11 @@ String postRequest(String endpoint) {
 
   int code = https.POST("{\"shift\":\"" + currentShift + "\"}");
   String res = https.getString();
+  
+  Serial.print("Reponse API (");
+  Serial.print(endpoint);
+  Serial.print("): ");
+  Serial.println(res);
 
   https.end();
   return res;
@@ -93,23 +98,36 @@ void synchroniserEtatProduction() {
   int code = https.GET();
   if (code == 200) {
     String response = https.getString();
+    Serial.print("Etat initial: ");
+    Serial.println(response);
+    
     DynamicJsonDocument doc(1024);
     deserializeJson(doc, response);
     String statut = doc["statut"] | "";
+    int quantiteRequise = doc["quantite_requise"] | 0;
     
-    if (statut.indexOf("En cours") >= 0) {
+    Serial.print("Statut recu: '");
+    Serial.print(statut);
+    Serial.print("' Quantite: ");
+    Serial.println(quantiteRequise);
+    
+    if (statut == "En cours") {
       productionEnCours = true;
       setLED(HIGH, LOW, LOW);
-      Serial.println("Production deja en cours (recupere depuis API)");
+      Serial.println("Production deja en cours");
     } else {
       productionEnCours = false;
-      if (statut.indexOf("En attente") >= 0) {
+      if (statut == "En attente") {
         setLED(LOW, HIGH, LOW);
+        Serial.println("Mode: En attente");
       } else {
         setLED(LOW, LOW, HIGH);
+        Serial.println("Mode: Libre");
       }
     }
   } else {
+    Serial.print("Erreur HTTP: ");
+    Serial.println(code);
     Serial.println("Impossible de synchroniser l'etat au demarrage");
   }
   https.end();
@@ -117,7 +135,10 @@ void synchroniserEtatProduction() {
 
 // ================= UPDATE FROM API (LEDS) =================
 void mettreAJourSysteme() {
-  if (productionEnCours) return;
+  if (productionEnCours) {
+    Serial.println("Production en cours, mise a jour LED ignoree");
+    return;
+  }
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -132,14 +153,23 @@ void mettreAJourSysteme() {
     deserializeJson(doc, response);
     String statut = doc["statut"] | "";
 
-    if (statut.indexOf("En attente") >= 0) {
+    Serial.print("Mise a jour LED - Statut: ");
+    Serial.println(statut);
+
+    if (statut == "En attente") {
       setLED(LOW, HIGH, LOW);
-    } else if (statut.indexOf("En cours") >= 0) {
+      Serial.println("LED -> ORANGE (En attente)");
+    } else if (statut == "En cours") {
       productionEnCours = true;
       setLED(HIGH, LOW, LOW);
+      Serial.println("LED -> ROUGE (En cours)");
     } else {
       setLED(LOW, LOW, HIGH);
+      Serial.println("LED -> VERT (Libre)");
     }
+  } else {
+    Serial.print("Erreur GET etat: ");
+    Serial.println(code);
   }
   https.end();
 }
@@ -147,26 +177,46 @@ void mettreAJourSysteme() {
 // ================= PEDALE =================
 void gererPedale() {
   if (!productionEnCours) {
-    Serial.println("START");
+    Serial.println("===== DEMARRAGE PRODUCTION =====");
     setLED(HIGH, LOW, LOW);
     productionEnCours = true;
-    postRequest("/api/lancer_automatique");
+    String response = postRequest("/api/lancer_automatique");
+    
+    // Verifier si le demarrage a reussi
+    DynamicJsonDocument doc(256);
+    deserializeJson(doc, response);
+    bool success = doc["success"] | false;
+    
+    if (success) {
+      Serial.println("Production demarree avec succes");
+    } else {
+      Serial.println("Erreur: Aucune demande en attente");
+      productionEnCours = false;
+      mettreAJourSysteme();
+    }
   } else {
-    Serial.println("INCREMENT");
+    Serial.println("===== INCREMENT =====");
     String res = postRequest("/api/increment");
     
     DynamicJsonDocument doc(256);
     deserializeJson(doc, res);
+    bool success = doc["success"] | false;
     bool termine = doc["termine"] | false;
     
+    Serial.print("Success: ");
+    Serial.print(success);
+    Serial.print(" | Termine: ");
+    Serial.println(termine);
+    
     if (termine) {
-      Serial.println("FIN");
+      Serial.println("===== PRODUCTION TERMINEE =====");
       productionEnCours = false;
+      // Clignotement vert 3 fois
       for (int i = 0; i < 3; i++) {
         setLED(LOW, LOW, HIGH);
-        delay(150);
+        delay(200);
         setLED(LOW, LOW, LOW);
-        delay(150);
+        delay(200);
       }
       mettreAJourSysteme();
     }
@@ -176,8 +226,12 @@ void gererPedale() {
 // ================= CANCEL =================
 void gererAnnulation() {
   if (productionEnCours) {
-    Serial.println("DECREMENT");
-    postRequest("/api/decrement");
+    Serial.println("===== DECREMENT =====");
+    String res = postRequest("/api/decrement");
+    Serial.print("Reponse decrement: ");
+    Serial.println(res);
+  } else {
+    Serial.println("Annulation ignoree: pas de production en cours");
   }
 }
 
@@ -188,10 +242,12 @@ void loop() {
 
   if ((millis() - lastDebounceTime) > debounceDelay) {
     if (lastLimitState == HIGH && limitState == LOW) {
+      Serial.println("*** Pedale appuyee ***");
       gererPedale();
       lastDebounceTime = millis();
     }
     if (lastCancelState == HIGH && cancelState == LOW) {
+      Serial.println("*** Bouton cancel appuye ***");
       gererAnnulation();
       lastDebounceTime = millis();
     }
