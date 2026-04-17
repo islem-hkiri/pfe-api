@@ -3,25 +3,15 @@ import pandas as pd
 import openpyxl
 import os
 
-# --- chemins des fichiers ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 KANBAN_PATH = os.path.join(BASE_DIR, "Classeur Kanban VKF CW 12.xlsm")
 PDB_PATH = os.path.join(BASE_DIR, "LAS_PDB .xlsm")
-# --------------------------------
 
 def init_db():
-    # 1. connexion
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 2. Reset Tables (optionnel - commenté pour ne pas perdre les données)
-    # cursor.execute("DROP TABLE IF EXISTS Produits")
-    # cursor.execute("DROP TABLE IF EXISTS Stock")
-    # cursor.execute("DROP TABLE IF EXISTS Demandes")
-    # cursor.execute("DROP TABLE IF EXISTS Pannes")
-    
-    # 2.1 Nouvelle table EtatMachine (pour les compteurs automatiques)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS EtatMachine (
         shift TEXT PRIMARY KEY,
@@ -32,11 +22,9 @@ def init_db():
     )
     """)
     
-    # Initialiser les shifts A et B s'ils n'existent pas
     for s in ['A', 'B']:
         cursor.execute("INSERT OR IGNORE INTO EtatMachine (shift, compteur_actuel, machine_disponible) VALUES (?, 0, 1)", (s,))
 
-    # 3. Création des autres tables (si elles n'existent pas)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Pannes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,7 +33,7 @@ def init_db():
         cause TEXT NOT NULL,
         debut_panne TEXT NOT NULL,
         fin_panne TEXT,
-        statut TEXT DEFAULT ' Ouvert'
+        statut TEXT DEFAULT 'Ouvert'
     )
     """)
 
@@ -85,7 +73,7 @@ def init_db():
     )
     """)
 
-    # 4. Import Dispatching
+    # Import Dispatching
     try:
         df_k = pd.read_excel(KANBAN_PATH, sheet_name="DISPATCHING REF")
         for i, row in df_k.iterrows():
@@ -98,11 +86,11 @@ def init_db():
                                  (ref, str(row.iloc[1]).strip()))
             except:
                 continue
-        print("✅ Dispatching OK")
+        print("Dispatching OK")
     except Exception as e:
-        print(f"❌ Erreur Dispatching: {e}")
+        print(f"Erreur Dispatching: {e}")
 
-    # 5. Import BESOIN
+    # Import BESOIN
     try:
         wb = openpyxl.load_workbook(KANBAN_PATH, data_only=True)
         if "BESOIN" in wb.sheetnames:
@@ -126,13 +114,13 @@ def init_db():
                                     VALUES (?, 'Reference_Cable', 0)
                                 """, (val_ref,))
                                 count_log += 1
-            print(f"✅ Logistique OK : {count_log} références lues dans Fiat.")
+            print(f"Logistique OK : {count_log} references lues dans Fiat.")
         else:
-            print("❌ Onglet 'BESOIN' introuvable.")
+            print("Onglet 'BESOIN' introuvable.")
     except Exception as e:
-        print(f"❌ Erreur Logistique : {e}")
+        print(f"Erreur Logistique : {e}")
 
-    # 6. Import PDB
+    # Import PDB
     try:
         df_pdb = pd.read_excel(PDB_PATH, sheet_name=0)
         for _, row in df_pdb.iterrows():
@@ -148,14 +136,13 @@ def init_db():
                     pd.to_numeric(row.iloc[6], errors='coerce'), 
                     ref_p
                 ))
-        print("✅ PDB OK")
+        print("PDB OK")
     except Exception as e:
-        print(f"❌ Erreur PDB: {e}")
+        print(f"Erreur PDB: {e}")
 
-    # 7. Commit & fermeture
     conn.commit()
     conn.close()
-    print("✅ Database terminée !")
+    print("Database terminee !")
 
 if __name__ == "__main__":
     init_db()

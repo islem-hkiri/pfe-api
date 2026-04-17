@@ -5,15 +5,12 @@ import os
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 
-# Configuration de base
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 st.set_page_config(page_title="Poste Soudure Ultrasons")
 
-# Auto-refresh
 st_autorefresh(interval=5000, key="main_refresh")
 
-# Initialisation de session
 if 'task_counter' not in st.session_state:
     st.session_state.task_counter = 0
 
@@ -21,13 +18,11 @@ def generate_unique_key(base_name):
     st.session_state.task_counter += 1
     return f"{base_name}_{st.session_state.task_counter}"
 
-# Sidebar - Identification
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur (Saisie)", key="operateur_id")
     shift = st.radio("Shift", ["A", "B"], key="shift_selection", horizontal=True)
     
-    # Signalement de panne
     st.subheader("Signalement Panne")
     with st.expander("Declarer une Panne"):
         cause = st.text_input("Cause de la panne", key="panne_cause")
@@ -49,7 +44,6 @@ with st.sidebar:
             else:
                 st.warning("Saisir ID operateur + cause")
 
-    # Historique
     with st.expander("Historique"):
         try:
             conn = sqlite3.connect(DB_PATH)
@@ -66,7 +60,7 @@ with st.sidebar:
             FROM Demandes d
             JOIN Produits p ON d.reference = p.reference
             WHERE d.shift = ?
-            AND d.statut = 'Terminé'
+            AND d.statut = 'Termine'
             ORDER BY d.fin_production DESC
             LIMIT 20
             """
@@ -82,7 +76,7 @@ with st.sidebar:
                     conn.execute("""
                     UPDATE Demandes 
                     SET statut = 'Archive' 
-                    WHERE shift = ? AND statut = 'Terminé'
+                    WHERE shift = ? AND statut = 'Termine'
                     """, (shift,))
                     conn.commit()
                     st.rerun()
@@ -93,7 +87,6 @@ with st.sidebar:
         finally:
             conn.close()
 
-# Interface principale
 st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 
 try:
@@ -112,7 +105,7 @@ try:
     FROM Demandes d
     JOIN Produits p ON d.reference = p.reference
     WHERE d.shift = ?
-    AND d.statut NOT IN ('Terminé','Archive')
+    AND d.statut NOT IN ('Termine','Archive')
     ORDER BY d.date_besoin ASC
     """
     tasks = conn.execute(query, (shift,)).fetchall()
@@ -125,7 +118,6 @@ try:
                 cols = st.columns([1, 1, 2])
                 
                 with cols[0]:
-                    # MODIFICATION ICI: On utilise '🟢En cours' pour être compatible avec l'API et l'ESP32
                     if stat == 'En cours':
                         st.button(
                             "Production en cours", 
@@ -134,7 +126,6 @@ try:
                         )
                     else:
                         if st.button("Lancer production", key=f"start_prod_{id_d}_{shift}"):
-                            # On change le statut en '🟢En cours' (avec l'émoji)
                             conn.execute("""
                                 UPDATE Demandes
                                 SET statut = 'En cours',
@@ -143,7 +134,7 @@ try:
                                 WHERE id = ?
                             """, (id_op_saisie, id_d))
                             conn.commit()
-                            st.success(f"Production lancée pour {mod}")
+                            st.success(f"Production lancee pour {mod}")
                             st.rerun()
                 
                 with cols[1]:
@@ -156,7 +147,7 @@ try:
                         """, (qte_a_ajouter, id_d))
                         conn.execute("""
                             UPDATE Demandes 
-                            SET statut='Terminé', fin_production=datetime('now') 
+                            SET statut='Termine', fin_production=datetime('now') 
                             WHERE id=?
                         """, (id_d,))
                         conn.commit()

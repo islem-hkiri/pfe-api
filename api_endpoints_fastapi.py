@@ -6,7 +6,6 @@ import os
 
 app = FastAPI()
 
-# ================= CORS =================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,7 +14,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ================= DB =================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 
@@ -26,9 +24,6 @@ class ShiftRequest(BaseModel):
 def root():
     return {"message": "API PFE OK"}
 
-# =========================================================
-# 🔵 ETAT MACHINE (LED)
-# =========================================================
 @app.get("/api/etat")
 def get_etat(shift: str = "A"):
     try:
@@ -62,7 +57,7 @@ def get_etat(shift: str = "A"):
         demande_id, statut, qte = demande
         return {
             "demande_id": demande_id,
-            "statut": statut,          # "En cours" ou "En attente"
+            "statut": statut,
             "quantite_requise": qte,
             "machine_disponible": (statut != 'En cours')
         }
@@ -75,9 +70,6 @@ def get_etat(shift: str = "A"):
         except:
             pass
 
-# =========================================================
-# 🚀 LANCER PRODUCTION
-# =========================================================
 @app.post("/api/lancer_automatique")
 def lancer_auto(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
@@ -112,9 +104,6 @@ def lancer_auto(req: ShiftRequest):
     conn.close()
     return {"success": True}
 
-# =========================================================
-# ➕ INCREMENT
-# =========================================================
 @app.post("/api/increment")
 def increment(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
@@ -151,7 +140,7 @@ def increment(req: ShiftRequest):
     if termine:
         cursor.execute("""
             UPDATE Demandes 
-            SET statut = 'Terminé', fin_production = datetime('now') 
+            SET statut = 'Termine', fin_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
         
@@ -167,9 +156,6 @@ def increment(req: ShiftRequest):
     conn.close()
     return {"success": True, "termine": termine}
 
-# =========================================================
-# ➖ DECREMENT
-# =========================================================
 @app.post("/api/decrement")
 def decrement(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)

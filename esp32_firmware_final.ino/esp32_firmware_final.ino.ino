@@ -1,5 +1,5 @@
 /*
- * ESP32 Firmware - VERSION FINALE (STABLE INDUSTRIEL) - CORRIGÉE
+ * ESP32 Firmware - VERSION FINALE (STABLE INDUSTRIEL) - CORRIGEE
  */
 
 #include <WiFi.h>
@@ -22,7 +22,7 @@ const int PIN_LED_ORANGE = 27;
 const int PIN_LED_VERTE = 26;
 
 // ================= VARIABLES =================
-String currentShift = "B";   // Peut être changé en "A" si besoin
+String currentShift = "B";
 bool productionEnCours = false;
 
 unsigned long lastDebounceTime = 0;
@@ -52,9 +52,8 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\n WiFi connecté");
+  Serial.println("\nWiFi connecte");
 
-  // Synchronisation de l'état de production au démarrage
   delay(1000);
   synchroniserEtatProduction();
 }
@@ -83,7 +82,7 @@ void setLED(bool r, bool o, bool v) {
   digitalWrite(PIN_LED_VERTE, v);
 }
 
-// ================= SYNCHRONISATION DÉMARRAGE =================
+// ================= SYNCHRONISATION DEMARRAGE =================
 void synchroniserEtatProduction() {
   WiFiClientSecure client;
   client.setInsecure();
@@ -100,25 +99,24 @@ void synchroniserEtatProduction() {
     
     if (statut.indexOf("En cours") >= 0) {
       productionEnCours = true;
-      setLED(HIGH, LOW, LOW);   // Rouge : production active
-      Serial.println("Production déjà en cours (récupéré depuis API)");
+      setLED(HIGH, LOW, LOW);
+      Serial.println("Production deja en cours (recupere depuis API)");
     } else {
       productionEnCours = false;
       if (statut.indexOf("En attente") >= 0) {
-        setLED(LOW, HIGH, LOW); // Orange : en attente
+        setLED(LOW, HIGH, LOW);
       } else {
-        setLED(LOW, LOW, HIGH); // Vert : libre
+        setLED(LOW, LOW, HIGH);
       }
     }
   } else {
-    Serial.println("Impossible de synchroniser l'état au démarrage");
+    Serial.println("Impossible de synchroniser l'etat au demarrage");
   }
   https.end();
 }
 
 // ================= UPDATE FROM API (LEDS) =================
 void mettreAJourSysteme() {
-  // Ne pas changer les LEDs si la production est en cours (déjà rouge)
   if (productionEnCours) return;
 
   WiFiClientSecure client;
@@ -135,13 +133,12 @@ void mettreAJourSysteme() {
     String statut = doc["statut"] | "";
 
     if (statut.indexOf("En attente") >= 0) {
-      setLED(LOW, HIGH, LOW);   // Orange
+      setLED(LOW, HIGH, LOW);
     } else if (statut.indexOf("En cours") >= 0) {
-      // Cas anormal : productionEnCours devrait être true, mais on sécurise
       productionEnCours = true;
-      setLED(HIGH, LOW, LOW);   // Rouge
+      setLED(HIGH, LOW, LOW);
     } else {
-      setLED(LOW, LOW, HIGH);   // Vert : libre ou terminé
+      setLED(LOW, LOW, HIGH);
     }
   }
   https.end();
@@ -150,17 +147,14 @@ void mettreAJourSysteme() {
 // ================= PEDALE =================
 void gererPedale() {
   if (!productionEnCours) {
-    // Démarrage production
     Serial.println("START");
-    setLED(HIGH, LOW, LOW);   // Rouge immédiat
+    setLED(HIGH, LOW, LOW);
     productionEnCours = true;
     postRequest("/api/lancer_automatique");
   } else {
-    // Incrément
     Serial.println("INCREMENT");
     String res = postRequest("/api/increment");
     
-    // Analyse JSON pour savoir si la production est terminée
     DynamicJsonDocument doc(256);
     deserializeJson(doc, res);
     bool termine = doc["termine"] | false;
@@ -168,14 +162,12 @@ void gererPedale() {
     if (termine) {
       Serial.println("FIN");
       productionEnCours = false;
-      // Clignotement vert
       for (int i = 0; i < 3; i++) {
         setLED(LOW, LOW, HIGH);
         delay(150);
         setLED(LOW, LOW, LOW);
         delay(150);
       }
-      // Mise à jour LED selon l'état API
       mettreAJourSysteme();
     }
   }
@@ -184,7 +176,7 @@ void gererPedale() {
 // ================= CANCEL =================
 void gererAnnulation() {
   if (productionEnCours) {
-    Serial.println("➖ DECREMENT");
+    Serial.println("DECREMENT");
     postRequest("/api/decrement");
   }
 }
