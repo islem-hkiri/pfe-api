@@ -23,7 +23,7 @@ const char* password = "485754439C621CB0";   // ⚠️ Modifier si besoin
 
 // ==================== API en ligne sur Render ====================
 // ⚠️ REMPLACE PAR TON URL RENDER !
-const char* serverHost = "pfe-api-5sey.onrender.com";  // ← METS TON URL ICI
+const char* serverHost = "pfe-api-vure.onrender.com";  // ← METS TON URL ICI
 const int SERVER_PORT = 443;  // HTTPS
 
 // ==================== Pins ====================
