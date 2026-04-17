@@ -1,5 +1,5 @@
 /*
- * ESP32 Firmware - VERSION FINALE (STABLE INDUSTRIEL) - CORRIGEE
+ * ESP32 Firmware - VERSION SIMPLIFIEE (STABLE)
  */
 
 #include <WiFi.h>
@@ -24,6 +24,9 @@ const int PIN_LED_VERTE = 26;
 // ================= VARIABLES =================
 String currentShift = "B";
 bool productionEnCours = false;
+int compteurLocal = 0;
+int quantiteMax = 0;
+int demandeId = 0;
 
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 100;
@@ -31,7 +34,7 @@ bool lastLimitState = HIGH;
 bool lastCancelState = HIGH;
 
 unsigned long lastLEDUpdate = 0;
-const unsigned long LED_UPDATE_INTERVAL = 2000;
+const unsigned long LED_UPDATE_INTERVAL = 3000;
 
 // ================= SETUP =================
 void setup() {
@@ -47,37 +50,19 @@ void setup() {
   digitalWrite(PIN_LED_ORANGE, LOW);
   digitalWrite(PIN_LED_VERTE, LOW);
 
+  // Connexion WiFi
+  Serial.print("Connexion WiFi...");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connecte");
+  Serial.println("\nWiFi connecte !");
+  Serial.print("Adresse IP: ");
+  Serial.println(WiFi.localIP());
 
   delay(1000);
-  synchroniserEtatProduction();
-}
-
-// ================= HTTP =================
-String postRequest(String endpoint) {
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient https;
-
-  String url = "https://" + String(serverHost) + endpoint;
-  https.begin(client, url);
-  https.addHeader("Content-Type", "application/json");
-
-  int code = https.POST("{\"shift\":\"" + currentShift + "\"}");
-  String res = https.getString();
-  
-  Serial.print("Reponse API (");
-  Serial.print(endpoint);
-  Serial.print("): ");
-  Serial.println(res);
-
-  https.end();
-  return res;
+  mettreAJourEtatDepuisAPI();
 }
 
 // ================= LED CONTROL =================
@@ -85,169 +70,239 @@ void setLED(bool r, bool o, bool v) {
   digitalWrite(PIN_LED_ROUGE, r);
   digitalWrite(PIN_LED_ORANGE, o);
   digitalWrite(PIN_LED_VERTE, v);
+  Serial.print("LED: R=");
+  Serial.print(r);
+  Serial.print(" O=");
+  Serial.print(o);
+  Serial.print(" V=");
+  Serial.println(v);
 }
 
-// ================= SYNCHRONISATION DEMARRAGE =================
-void synchroniserEtatProduction() {
+// ================= RECUPERER ETAT DEPUIS API =================
+void mettreAJourEtatDepuisAPI() {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
 
   String url = "https://" + String(serverHost) + "/api/etat?shift=" + currentShift;
+  Serial.print("Appel API: ");
+  Serial.println(url);
+  
   https.begin(client, url);
   int code = https.GET();
+  
   if (code == 200) {
     String response = https.getString();
-    Serial.print("Etat initial: ");
+    Serial.print("Reponse API: ");
     Serial.println(response);
     
-    DynamicJsonDocument doc(1024);
-    deserializeJson(doc, response);
-    String statut = doc["statut"] | "";
-    int quantiteRequise = doc["quantite_requise"] | 0;
+    DynamicJsonDocument doc(512);
+    DeserializationError error = deserializeJson(doc, response);
     
-    Serial.print("Statut recu: '");
-    Serial.print(statut);
-    Serial.print("' Quantite: ");
-    Serial.println(quantiteRequise);
-    
-    if (statut == "En cours") {
-      productionEnCours = true;
-      setLED(HIGH, LOW, LOW);
-      Serial.println("Production deja en cours");
-    } else {
-      productionEnCours = false;
-      if (statut == "En attente") {
-        setLED(LOW, HIGH, LOW);
-        Serial.println("Mode: En attente");
-      } else {
-        setLED(LOW, LOW, HIGH);
-        Serial.println("Mode: Libre");
+    if (!error) {
+      String statut = doc["statut"].as<String>();
+      quantiteMax = doc["quantite_requise"] | 0;
+      demandeId = doc["demande_id"] | 0;
+      
+      Serial.print("Statut: ");
+      Serial.print(statut);
+      Serial.print(" | Quantite max: ");
+      Serial.print(quantiteMax);
+      Serial.print(" | Demande ID: ");
+      Serial.println(demandeId);
+      
+      // Mise a jour des LEDs selon le statut
+      if (statut == "En cours") {
+        productionEnCours = true;
+        setLED(HIGH, LOW, LOW);  // Rouge
+        Serial.println(">>> Production EN COURS");
+      } 
+      else if (statut == "En attente") {
+        productionEnCours = false;
+        setLED(LOW, HIGH, LOW);  // Orange
+        Serial.println(">>> En ATTENTE");
+      } 
+      else {
+        productionEnCours = false;
+        setLED(LOW, LOW, HIGH);  // Vert
+        Serial.println(">>> LIBRE");
       }
+    } else {
+      Serial.print("Erreur parsing JSON: ");
+      Serial.println(error.c_str());
     }
   } else {
     Serial.print("Erreur HTTP: ");
     Serial.println(code);
-    Serial.println("Impossible de synchroniser l'etat au demarrage");
   }
+  
   https.end();
 }
 
-// ================= UPDATE FROM API (LEDS) =================
-void mettreAJourSysteme() {
-  if (productionEnCours) {
-    Serial.println("Production en cours, mise a jour LED ignoree");
-    return;
-  }
-
+// ================= LANCER PRODUCTION =================
+bool lancerProduction() {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
-
-  String url = "https://" + String(serverHost) + "/api/etat?shift=" + currentShift;
+  
+  String url = "https://" + String(serverHost) + "/api/lancer_automatique";
   https.begin(client, url);
-  int code = https.GET();
+  https.addHeader("Content-Type", "application/json");
+  
+  String body = "{\"shift\":\"" + currentShift + "\"}";
+  int code = https.POST(body);
+  String response = https.getString();
+  
+  Serial.print("Lancer production - Code: ");
+  Serial.print(code);
+  Serial.print(" | Reponse: ");
+  Serial.println(response);
+  
+  https.end();
+  
   if (code == 200) {
-    String response = https.getString();
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(256);
     deserializeJson(doc, response);
-    String statut = doc["statut"] | "";
-
-    Serial.print("Mise a jour LED - Statut: ");
-    Serial.println(statut);
-
-    if (statut == "En attente") {
-      setLED(LOW, HIGH, LOW);
-      Serial.println("LED -> ORANGE (En attente)");
-    } else if (statut == "En cours") {
-      productionEnCours = true;
-      setLED(HIGH, LOW, LOW);
-      Serial.println("LED -> ROUGE (En cours)");
-    } else {
-      setLED(LOW, LOW, HIGH);
-      Serial.println("LED -> VERT (Libre)");
-    }
-  } else {
-    Serial.print("Erreur GET etat: ");
-    Serial.println(code);
+    return doc["success"] | false;
   }
+  return false;
+}
+
+// ================= INCREMENT =================
+bool incrementerProduction() {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  
+  String url = "https://" + String(serverHost) + "/api/increment";
+  https.begin(client, url);
+  https.addHeader("Content-Type", "application/json");
+  
+  String body = "{\"shift\":\"" + currentShift + "\"}";
+  int code = https.POST(body);
+  String response = https.getString();
+  
+  Serial.print("Increment - Code: ");
+  Serial.print(code);
+  Serial.print(" | Reponse: ");
+  Serial.println(response);
+  
+  https.end();
+  
+  if (code == 200) {
+    DynamicJsonDocument doc(256);
+    deserializeJson(doc, response);
+    bool termine = doc["termine"] | false;
+    return termine;
+  }
+  return false;
+}
+
+// ================= DECREMENT =================
+void decrementerProduction() {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  
+  String url = "https://" + String(serverHost) + "/api/decrement";
+  https.begin(client, url);
+  https.addHeader("Content-Type", "application/json");
+  
+  String body = "{\"shift\":\"" + currentShift + "\"}";
+  int code = https.POST(body);
+  String response = https.getString();
+  
+  Serial.print("Decrement - Code: ");
+  Serial.print(code);
+  Serial.print(" | Reponse: ");
+  Serial.println(response);
+  
   https.end();
 }
 
-// ================= PEDALE =================
+// ================= GESTION PEDALE =================
 void gererPedale() {
+  Serial.println(">>> Pedale appuyee <<<");
+  
   if (!productionEnCours) {
-    Serial.println("===== DEMARRAGE PRODUCTION =====");
-    setLED(HIGH, LOW, LOW);
-    productionEnCours = true;
-    String response = postRequest("/api/lancer_automatique");
+    // Demarrer nouvelle production
+    Serial.println("Tentative de demarrage production...");
+    setLED(HIGH, LOW, LOW);  // Rouge immediat
     
-    // Verifier si le demarrage a reussi
-    DynamicJsonDocument doc(256);
-    deserializeJson(doc, response);
-    bool success = doc["success"] | false;
-    
-    if (success) {
-      Serial.println("Production demarree avec succes");
+    if (lancerProduction()) {
+      productionEnCours = true;
+      Serial.println("Production DEMARREE avec succes !");
+      // Attendre un peu et rafraichir l'etat
+      delay(500);
+      mettreAJourEtatDepuisAPI();
     } else {
-      Serial.println("Erreur: Aucune demande en attente");
+      Serial.println("ECHEC demarrage - Aucune demande en attente!");
       productionEnCours = false;
-      mettreAJourSysteme();
+      mettreAJourEtatDepuisAPI();
     }
-  } else {
-    Serial.println("===== INCREMENT =====");
-    String res = postRequest("/api/increment");
-    
-    DynamicJsonDocument doc(256);
-    deserializeJson(doc, res);
-    bool success = doc["success"] | false;
-    bool termine = doc["termine"] | false;
-    
-    Serial.print("Success: ");
-    Serial.print(success);
-    Serial.print(" | Termine: ");
-    Serial.println(termine);
+  } 
+  else {
+    // Incrementer production en cours
+    Serial.println("Incrementation production...");
+    bool termine = incrementerProduction();
     
     if (termine) {
-      Serial.println("===== PRODUCTION TERMINEE =====");
+      Serial.println(">>> PRODUCTION TERMINEE ! <<<");
       productionEnCours = false;
-      // Clignotement vert 3 fois
+      
+      // Clignotement LED VERTE 3 fois
       for (int i = 0; i < 3; i++) {
         setLED(LOW, LOW, HIGH);
         delay(200);
         setLED(LOW, LOW, LOW);
         delay(200);
       }
-      mettreAJourSysteme();
+      
+      // Rafraichir l'etat
+      mettreAJourEtatDepuisAPI();
+    } else {
+      Serial.println("Increment reussi, production continue...");
+      // Faire clignoter LED VERTE rapidement pour confirmer
+      setLED(LOW, LOW, HIGH);
+      delay(100);
+      setLED(HIGH, LOW, LOW);
     }
   }
 }
 
-// ================= CANCEL =================
+// ================= GESTION ANNULATION =================
 void gererAnnulation() {
+  Serial.println(">>> Bouton ANNULATION appuye <<<");
+  
   if (productionEnCours) {
-    Serial.println("===== DECREMENT =====");
-    String res = postRequest("/api/decrement");
-    Serial.print("Reponse decrement: ");
-    Serial.println(res);
+    decrementerProduction();
+    Serial.println("Decrement effectue");
+    
+    // Clignotement LED ORANGE pour confirmer
+    for (int i = 0; i < 2; i++) {
+      setLED(LOW, HIGH, LOW);
+      delay(100);
+      setLED(HIGH, LOW, LOW);
+      delay(100);
+    }
   } else {
-    Serial.println("Annulation ignoree: pas de production en cours");
+    Serial.println("Aucune production en cours - Annulation ignoree");
   }
 }
 
-// ================= LOOP =================
+// ================= LOOP PRINCIPAL =================
 void loop() {
   bool limitState = digitalRead(PIN_LIMIT_SWITCH);
   bool cancelState = digitalRead(PIN_CANCEL_BUTTON);
 
+  // Detection front descendant (appui)
   if ((millis() - lastDebounceTime) > debounceDelay) {
     if (lastLimitState == HIGH && limitState == LOW) {
-      Serial.println("*** Pedale appuyee ***");
       gererPedale();
       lastDebounceTime = millis();
     }
+    
     if (lastCancelState == HIGH && cancelState == LOW) {
-      Serial.println("*** Bouton cancel appuye ***");
       gererAnnulation();
       lastDebounceTime = millis();
     }
@@ -256,8 +311,10 @@ void loop() {
   lastLimitState = limitState;
   lastCancelState = cancelState;
 
+  // Mise a jour periodique de l'etat
   if (millis() - lastLEDUpdate > LED_UPDATE_INTERVAL) {
-    mettreAJourSysteme();
+    Serial.println("--- Mise a jour periodique ---");
+    mettreAJourEtatDepuisAPI();
     lastLEDUpdate = millis();
   }
 
