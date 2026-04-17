@@ -29,21 +29,39 @@ def root():
 def get_etat(shift: str = "A"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
     cursor.execute("""
         SELECT id, statut, quantite
         FROM Demandes
-        WHERE shift = ? AND statut IN ('🟢En cours', '🟠En attente')
-        ORDER BY CASE WHEN statut = '🟢En cours' THEN 1 ELSE 2 END, id ASC
+        WHERE shift = ? 
+        AND statut IN ('🟢En cours', '🟠En attente')
+        ORDER BY 
+            CASE 
+                WHEN statut = '🟢En cours' THEN 1 
+                WHEN statut = '🟠En attente' THEN 2 
+            END,
+            id ASC
         LIMIT 1
     """, (shift,))
+    
     demande = cursor.fetchone()
-    conn.close()
-    
-    if not demande:
-        return {"machine_disponible": True, "statut": "Libre", "quantite_requise": 0}
-    
-    return {"machine_disponible": (demande[1] != '🟢En cours'), "statut": demande[1], "quantite_requise": demande[2]}
 
+    if not demande:
+        conn.close()
+        return {
+            "statut": "Libre",
+            "machine_disponible": True
+        }
+
+    demande_id, statut, qte = demande
+    conn.close()
+
+    return {
+        "demande_id": demande_id,
+        "statut": statut,
+        "quantite_requise": qte,
+        "machine_disponible": (statut != '🟢En cours')
+    }
 @app.post("/api/lancer_automatique")
 def lancer_auto(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)

@@ -1,43 +1,41 @@
 /*
- * ESP32 Firmware - Poste Soudure Ultrasons
- * Logic: 
- * - Green LED: No tasks.
- * - Orange LED: Task waiting (First pedal press -> Launch).
- * - Red LED: Task in progress (Pedal press -> Increment).
+ * ESP32 Firmware - Poste Soudure Ultrasons (FIX FINAL)
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 
-// ==================== WiFi Configuration ====================
+// ==================== WiFi ====================
 const char* ssid = "BEE HUAWEI-1CB0";
 const char* password = "485754439C621CB0";
 
-// ==================== API sur Render (HTTPS) ====================
+// ==================== API ====================
 const char* serverHost = "pfe-api-vure.onrender.com";
 
-// ==================== Broches ====================
-const int PIN_LIMIT_SWITCH = 13;   // Pédale
-const int PIN_CANCEL_BUTTON = 12;  // Bouton annulation
-const int PIN_LED_ROUGE = 14;      // Production en cours
-const int PIN_LED_ORANGE = 27;     // File d'attente non vide
-const int PIN_LED_VERTE = 26;      // Machine disponible
+// ==================== Pins ====================
+const int PIN_LIMIT_SWITCH = 13;
+const int PIN_CANCEL_BUTTON = 12;
+const int PIN_LED_ROUGE = 14;
+const int PIN_LED_ORANGE = 27;
+const int PIN_LED_VERTE = 26;
 
-// ==================== Variables globales ====================
-String currentShift = "B";   
-String currentStatus = "Libre"; 
+// ==================== Variables ====================
+String currentShift = "B";
+bool productionEnCours = false;
 
 unsigned long lastDebounceTime = 0;
-const unsigned long debounceDelay = 150;
+const unsigned long debounceDelay = 100;
 bool lastLimitState = HIGH;
 bool lastCancelState = HIGH;
 
 unsigned long lastLEDUpdate = 0;
-const unsigned long LED_UPDATE_INTERVAL = 2000; 
+const unsigned long LED_UPDATE_INTERVAL = 2000;
 
+// ==================== Setup ====================
 void setup() {
   Serial.begin(115200);
+
   pinMode(PIN_LIMIT_SWITCH, INPUT_PULLUP);
   pinMode(PIN_CANCEL_BUTTON, INPUT_PULLUP);
   pinMode(PIN_LED_ROUGE, OUTPUT);
@@ -51,91 +49,126 @@ void setup() {
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
   }
-  Serial.println("\n✅ WiFi connected!");
 }
 
-String makeHTTPRequest(String method, String endpoint, String body) {
-  if (WiFi.status() != WL_CONNECTED) return "";
+// ==================== HTTP ====================
+String makeHTTPRequest(String endpoint) {
   WiFiClientSecure client;
-  client.setInsecure(); 
+  client.setInsecure();
   HTTPClient https;
+
   String url = "https://" + String(serverHost) + endpoint;
   https.begin(client, url);
   https.addHeader("Content-Type", "application/json");
-  int httpCode = (method == "GET") ? https.GET() : https.POST(body);
-  String response = (httpCode > 0) ? https.getString() : "";
+
+  int code = https.POST("{\"shift\":\"" + currentShift + "\"}");
+  String res = https.getString();
+
   https.end();
-  return response;
+  return res;
 }
 
-void gererPedale() {
-  String body = "{\"shift\":\"" + currentShift + "\"}";
-  
-  if (currentStatus == "🟠En attente") {
-    Serial.println("🚀 First press: Launching production...");
-    String response = makeHTTPRequest("POST", "/api/lancer_automatique", body);
-    if (response.indexOf("\"success\":true") > 0) {
-      Serial.println("✅ Production started!");
-    }
-  } 
-  else if (currentStatus == "🟢En cours") {
-    Serial.println("➕ Incrementing counter...");
-    String response = makeHTTPRequest("POST", "/api/increment", body);
-    if (response.indexOf("\"termine\":true") > 0) {
-      Serial.println("🏁 Quantity reached! Task finished.");
-    }
-  }
+// ==================== LED ====================
+void setLED(bool r, bool o, bool v) {
+  digitalWrite(PIN_LED_ROUGE, r);
+  digitalWrite(PIN_LED_ORANGE, o);
+  digitalWrite(PIN_LED_VERTE, v);
 }
 
-void gererAnnulation() {
-  if (currentStatus == "🟢En cours") {
-    Serial.println("➖ Decrementing (-1)...");
-    String body = "{\"shift\":\"" + currentShift + "\"}";
-    makeHTTPRequest("POST", "/api/decrement", body);
-  }
-}
-
+// ==================== Update ====================
 void mettreAJourSysteme() {
-  String endpoint = "/api/etat?shift=" + currentShift;
-  String response = makeHTTPRequest("GET", endpoint, "");
-  if (response.length() == 0) return;
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
 
-  if (response.indexOf("\"statut\":\"🟢En cours\"") > 0) {
-    currentStatus = "🟢En cours";
-    digitalWrite(PIN_LED_ROUGE, HIGH);
-    digitalWrite(PIN_LED_ORANGE, LOW);
-    digitalWrite(PIN_LED_VERTE, LOW);
-  } 
-  else if (response.indexOf("\"statut\":\"🟠En attente\"") > 0) {
-    currentStatus = "🟠En attente";
-    digitalWrite(PIN_LED_ROUGE, LOW);
-    digitalWrite(PIN_LED_ORANGE, HIGH);
-    digitalWrite(PIN_LED_VERTE, LOW);
-  } 
+  String url = "https://" + String(serverHost) + "/api/etat?shift=" + currentShift;
+  https.begin(client, url);
+
+  int code = https.GET();
+  String response = https.getString();
+  https.end();
+
+  if (response.indexOf("🟢En cours") > 0) {
+    productionEnCours = true;
+    setLED(HIGH, LOW, LOW);
+  }
+  else if (response.indexOf("🟠En attente") > 0) {
+    productionEnCours = false;
+    setLED(LOW, HIGH, LOW);
+  }
   else {
-    currentStatus = "Libre";
-    digitalWrite(PIN_LED_ROUGE, LOW);
-    digitalWrite(PIN_LED_ORANGE, LOW);
-    digitalWrite(PIN_LED_VERTE, HIGH);
+    productionEnCours = false;
+    setLED(LOW, LOW, HIGH);
   }
 }
 
+// ==================== PEDALE ====================
+void gererPedale() {
+
+  // 🔥 أول نزلة
+  if (!productionEnCours) {
+
+    Serial.println("🚀 START (instant RED)");
+
+    // ✅ نشعل الأحمر مباشرة (بدون انتظار API)
+    setLED(HIGH, LOW, LOW);
+
+    productionEnCours = true;
+
+    // بعد نبعث للـ API
+    makeHTTPRequest("/api/lancer_automatique");
+  }
+
+  // 🔥 بقية النزلات
+  else {
+    Serial.println("➕ +1");
+
+    String res = makeHTTPRequest("/api/increment");
+
+    if (res.indexOf("\"termine\":true") > 0) {
+
+      Serial.println("🏁 FIN");
+
+      productionEnCours = false;
+
+      // blink vert
+      for (int i = 0; i < 3; i++) {
+        setLED(LOW, LOW, HIGH);
+        delay(150);
+        setLED(LOW, LOW, LOW);
+        delay(150);
+      }
+    }
+  }
+}
+
+// ==================== CANCEL ====================
+void gererAnnulation() {
+  if (productionEnCours) {
+    makeHTTPRequest("/api/decrement");
+  }
+}
+
+// ==================== LOOP ====================
 void loop() {
+
   bool limitState = digitalRead(PIN_LIMIT_SWITCH);
   bool cancelState = digitalRead(PIN_CANCEL_BUTTON);
 
   if ((millis() - lastDebounceTime) > debounceDelay) {
+
     if (lastLimitState == HIGH && limitState == LOW) {
       gererPedale();
       lastDebounceTime = millis();
     }
+
     if (lastCancelState == HIGH && cancelState == LOW) {
       gererAnnulation();
       lastDebounceTime = millis();
     }
   }
+
   lastLimitState = limitState;
   lastCancelState = cancelState;
 
@@ -143,5 +176,6 @@ void loop() {
     mettreAJourSysteme();
     lastLEDUpdate = millis();
   }
-  delay(20);
+
+  delay(50);
 }
