@@ -23,13 +23,12 @@ class ShiftRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "API PFE - Connectée", "status": "online"}
+    return {"message": "API PFE - Online"}
 
 @app.get("/api/etat")
 def get_etat(shift: str = "A"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
     cursor.execute("""
         SELECT id, statut, quantite
         FROM Demandes
@@ -38,54 +37,30 @@ def get_etat(shift: str = "A"):
         LIMIT 1
     """, (shift,))
     demande = cursor.fetchone()
-    
-    if not demande:
-        conn.close()
-        return {
-            "machine_disponible": True,
-            "demande_id": None,
-            "statut": "Libre",
-            "quantite_requise": 0
-        }
-    
-    demande_id, statut, qte = demande
     conn.close()
     
-    return {
-        "machine_disponible": (statut != '🟢En cours'),
-        "demande_id": demande_id,
-        "statut": statut,
-        "quantite_requise": qte
-    }
+    if not demande:
+        return {"machine_disponible": True, "statut": "Libre", "quantite_requise": 0}
+    
+    return {"machine_disponible": (demande[1] != '🟢En cours'), "statut": demande[1], "quantite_requise": demande[2]}
 
 @app.post("/api/lancer_automatique")
 def lancer_auto(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT id FROM Demandes 
-        WHERE shift = ? AND statut = '🟠En attente' 
-        ORDER BY id ASC LIMIT 1
-    """, (req.shift,))
+    cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND statut = '🟠En attente' ORDER BY id ASC LIMIT 1", (req.shift,))
     demande = cursor.fetchone()
     
     if not demande:
         conn.close()
         return {"success": False, "message": "Aucune tâche en attente"}
     
-    cursor.execute("""
-        UPDATE Demandes 
-        SET statut = '🟢En cours', debut_production = datetime('now') 
-        WHERE id = ?
-    """, (demande[0],))
-    
+    cursor.execute("UPDATE Demandes SET statut = '🟢En cours', debut_production = datetime('now') WHERE id = ?", (demande[0],))
     cursor.execute("""
         INSERT INTO EtatMachine (shift, compteur_actuel, last_update)
         VALUES (?, 0, datetime('now'))
         ON CONFLICT(shift) DO UPDATE SET compteur_actuel = 0, last_update = datetime('now')
     """, (req.shift,))
-    
     conn.commit()
     conn.close()
     return {"success": True, "message": "Production lancée"}
@@ -94,43 +69,24 @@ def lancer_auto(req: ShiftRequest):
 def increment(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT id, quantite, reference 
-        FROM Demandes 
-        WHERE shift = ? AND statut = '🟢En cours'
-        LIMIT 1
-    """, (req.shift,))
+    cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND statut = '🟢En cours' LIMIT 1", (req.shift,))
     demande = cursor.fetchone()
     
     if not demande:
         conn.close()
-        return {"success": False, "termine": False, "message": "Aucune production en cours"}
+        return {"success": False, "termine": False}
     
     demande_id, qte_max, ref = demande
-    
     cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
     row = cursor.fetchone()
-    compteur = row[0] + 1 if row else 1
-    cursor.execute("""
-        INSERT INTO EtatMachine (shift, compteur_actuel, last_update)
-        VALUES (?, ?, datetime('now'))
-        ON CONFLICT(shift) DO UPDATE SET compteur_actuel = ?, last_update = datetime('now')
-    """, (req.shift, compteur, compteur))
+    compteur = (row[0] + 1) if row else 1
+    
+    cursor.execute("UPDATE EtatMachine SET compteur_actuel = ?, last_update = datetime('now') WHERE shift = ?", (compteur, req.shift))
     
     termine = (compteur >= qte_max)
-    
     if termine:
-        cursor.execute("""
-            UPDATE Demandes 
-            SET statut = 'Terminé', fin_production = datetime('now') 
-            WHERE id = ?
-        """, (demande_id,))
-        cursor.execute("""
-            UPDATE Stock 
-            SET quantite = quantite + ? 
-            WHERE reference = ?
-        """, (qte_max, ref))
+        cursor.execute("UPDATE Demandes SET statut = 'Terminé', fin_production = datetime('now') WHERE id = ?", (demande_id,))
+        cursor.execute("UPDATE Stock SET quantite = quantite + ? WHERE reference = ?", (qte_max, ref))
         cursor.execute("UPDATE EtatMachine SET compteur_actuel = 0 WHERE shift = ?", (req.shift,))
     
     conn.commit()
@@ -141,15 +97,13 @@ def increment(req: ShiftRequest):
 def decrement(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
     cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
     row = cursor.fetchone()
     if row and row[0] > 0:
         nouveau = row[0] - 1
-        cursor.execute("UPDATE EtatMachine SET compteur_actuel = ?, last_update = datetime('now') WHERE shift = ?", (nouveau, req.shift))
+        cursor.execute("UPDATE EtatMachine SET compteur_actuel = ? WHERE shift = ?", (nouveau, req.shift))
         conn.commit()
         conn.close()
         return {"success": True, "compteur": nouveau}
-    
     conn.close()
-    return {"success": False, "compteur": 0}
+    return {"success": False}
