@@ -127,7 +127,7 @@ try:
                 
                 with cols[0]:
                     # Bouton Lancer production 
-                    if stat == 'En cours':
+                    if stat == '🟢En cours':
                         st.button(
                             "Production en cours ", 
                             key=f"start_prod_{id_d}_{shift}",
