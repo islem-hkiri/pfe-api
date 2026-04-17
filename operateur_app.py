@@ -126,7 +126,7 @@ try:
                 
                 with cols[0]:
                     # MODIFICATION ICI: On utilise '🟢En cours' pour être compatible avec l'API et l'ESP32
-                    if stat == '🟢En cours':
+                    if stat == 'En cours':
                         st.button(
                             "Production en cours", 
                             key=f"start_prod_{id_d}_{shift}",
@@ -137,7 +137,7 @@ try:
                             # On change le statut en '🟢En cours' (avec l'émoji)
                             conn.execute("""
                                 UPDATE Demandes
-                                SET statut = '🟢En cours',
+                                SET statut = 'En cours',
                                     debut_production = datetime('now'),
                                     operateur_id = ?
                                 WHERE id = ?
