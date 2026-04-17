@@ -1,26 +1,26 @@
 /*
- * ESP32 Firmware - Poste Soudure Ultrasons (FIX FINAL)
+ * ESP32 Firmware - VERSION FINALE (STABLE INDUSTRIEL)
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 
-// ==================== WiFi ====================
+// ================= WIFI =================
 const char* ssid = "BEE HUAWEI-1CB0";
 const char* password = "485754439C621CB0";
 
-// ==================== API ====================
+// ================= API =================
 const char* serverHost = "pfe-api-vure.onrender.com";
 
-// ==================== Pins ====================
+// ================= PINS =================
 const int PIN_LIMIT_SWITCH = 13;
 const int PIN_CANCEL_BUTTON = 12;
 const int PIN_LED_ROUGE = 14;
 const int PIN_LED_ORANGE = 27;
 const int PIN_LED_VERTE = 26;
 
-// ==================== Variables ====================
+// ================= VARIABLES =================
 String currentShift = "B";
 bool productionEnCours = false;
 
@@ -32,7 +32,7 @@ bool lastCancelState = HIGH;
 unsigned long lastLEDUpdate = 0;
 const unsigned long LED_UPDATE_INTERVAL = 2000;
 
-// ==================== Setup ====================
+// ================= SETUP =================
 void setup() {
   Serial.begin(115200);
 
@@ -50,10 +50,12 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
+
+  Serial.println("✅ WiFi connecté");
 }
 
-// ==================== HTTP ====================
-String makeHTTPRequest(String endpoint) {
+// ================= HTTP =================
+String postRequest(String endpoint) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
@@ -69,15 +71,19 @@ String makeHTTPRequest(String endpoint) {
   return res;
 }
 
-// ==================== LED ====================
+// ================= LED CONTROL =================
 void setLED(bool r, bool o, bool v) {
   digitalWrite(PIN_LED_ROUGE, r);
   digitalWrite(PIN_LED_ORANGE, o);
   digitalWrite(PIN_LED_VERTE, v);
 }
 
-// ==================== Update ====================
+// ================= UPDATE FROM API =================
 void mettreAJourSysteme() {
+
+  // 🚫 ما تبدلش LED إذا production شغالة
+  if (productionEnCours) return;
+
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
@@ -89,42 +95,37 @@ void mettreAJourSysteme() {
   String response = https.getString();
   https.end();
 
-  if (response.indexOf("🟢En cours") > 0) {
-    productionEnCours = true;
-    setLED(HIGH, LOW, LOW);
-  }
-  else if (response.indexOf("🟠En attente") > 0) {
-    productionEnCours = false;
+  if (response.indexOf("🟠En attente") > 0) {
     setLED(LOW, HIGH, LOW);
   }
   else {
-    productionEnCours = false;
     setLED(LOW, LOW, HIGH);
   }
 }
 
-// ==================== PEDALE ====================
+// ================= PEDALE =================
 void gererPedale() {
 
-  // 🔥 أول نزلة
+  // 🔴 أول نزلة = START
   if (!productionEnCours) {
 
-    Serial.println("🚀 START (instant RED)");
+    Serial.println("🚀 START");
 
-    // ✅ نشعل الأحمر مباشرة (بدون انتظار API)
+    // 🔥 LED rouge مباشرة
     setLED(HIGH, LOW, LOW);
 
     productionEnCours = true;
 
-    // بعد نبعث للـ API
-    makeHTTPRequest("/api/lancer_automatique");
+    // API
+    postRequest("/api/lancer_automatique");
   }
 
-  // 🔥 بقية النزلات
+  // 🟢 بقية النزلات = +1
   else {
-    Serial.println("➕ +1");
 
-    String res = makeHTTPRequest("/api/increment");
+    Serial.println("➕ INCREMENT");
+
+    String res = postRequest("/api/increment");
 
     if (res.indexOf("\"termine\":true") > 0) {
 
@@ -143,14 +144,15 @@ void gererPedale() {
   }
 }
 
-// ==================== CANCEL ====================
+// ================= CANCEL =================
 void gererAnnulation() {
   if (productionEnCours) {
-    makeHTTPRequest("/api/decrement");
+    Serial.println("➖ DECREMENT");
+    postRequest("/api/decrement");
   }
 }
 
-// ==================== LOOP ====================
+// ================= LOOP =================
 void loop() {
 
   bool limitState = digitalRead(PIN_LIMIT_SWITCH);
