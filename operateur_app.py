@@ -66,7 +66,7 @@ with st.sidebar:
             FROM Demandes d
             JOIN Produits p ON d.reference = p.reference
             WHERE d.shift = ?
-            AND d.statut = 'Termine'
+            AND d.statut = 'Terminé'
             ORDER BY d.fin_production DESC
             LIMIT 20
             """
@@ -82,7 +82,7 @@ with st.sidebar:
                     conn.execute("""
                     UPDATE Demandes 
                     SET statut = 'Archive' 
-                    WHERE shift = ? AND statut = 'Termine'
+                    WHERE shift = ? AND statut = 'Terminé'
                     """, (shift,))
                     conn.commit()
                     st.rerun()
@@ -112,7 +112,7 @@ try:
     FROM Demandes d
     JOIN Produits p ON d.reference = p.reference
     WHERE d.shift = ?
-    AND d.statut NOT IN ('Termine','Archive')
+    AND d.statut NOT IN ('Terminé','Archive')
     ORDER BY d.date_besoin ASC
     """
     tasks = conn.execute(query, (shift,)).fetchall()
@@ -121,12 +121,10 @@ try:
         for task in tasks:
             id_d, fam, mod, qte, stat, press, temps, amp, date_b = task
             
-            # Afficher la date dans le titre de l'expander
             with st.expander(f"{mod} | {fam} | Qte {qte} | Date besoin: {date_b} (ID: {id_d})"):
                 cols = st.columns([1, 1, 2])
                 
                 with cols[0]:
-                    # Bouton Lancer production 
                     if stat == '🟢En cours':
                         st.button(
                             "Production en cours ", 
@@ -135,16 +133,14 @@ try:
                         )
                     else:
                         if st.button("Lancer production", key=f"start_prod_{id_d}_{shift}"):
-                            # Mettre à jour le statut
                             conn.execute("""
                                 UPDATE Demandes
-                                SET statut = 'En cours',
+                                SET statut = '🟢En cours',
                                     debut_production = datetime('now'),
                                     operateur_id = ?
                                 WHERE id = ?
                             """, (id_op_saisie, id_d))
                             conn.commit()
-                            # Afficher les paramètres de soudure après le lancement
                             st.success(f"Production lancee pour {mod}")
                             st.info(f"Parametres soudure - Pression: {press} bar, Temps: {temps} s, Amplitude: {amp} %")
                             st.rerun()
@@ -159,7 +155,7 @@ try:
                         """, (qte_a_ajouter, id_d))
                         conn.execute("""
                             UPDATE Demandes 
-                            SET statut='Termine', fin_production=datetime('now') 
+                            SET statut='Terminé', fin_production=datetime('now') 
                             WHERE id=?
                         """, (id_d,))
                         conn.commit()

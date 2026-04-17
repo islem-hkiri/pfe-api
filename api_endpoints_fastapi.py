@@ -7,7 +7,6 @@ from datetime import datetime
 
 app = FastAPI()
 
-# Autoriser l'ESP32 (et toute autre origine)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,7 +25,6 @@ class ShiftRequest(BaseModel):
 def root():
     return {"message": "API PFE - Connectée", "status": "online"}
 
-# ==================== État machine (pour les LEDs) ====================
 @app.get("/api/etat")
 def get_etat(shift: str = "A"):
     conn = sqlite3.connect(DB_PATH)
@@ -60,13 +58,11 @@ def get_etat(shift: str = "A"):
         "quantite_requise": qte
     }
 
-# ==================== Lancer automatiquement la première tâche en attente ====================
 @app.post("/api/lancer_automatique")
 def lancer_auto(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Chercher la première tâche en attente
     cursor.execute("""
         SELECT id FROM Demandes 
         WHERE shift = ? AND statut = '🟠En attente' 
@@ -78,14 +74,12 @@ def lancer_auto(req: ShiftRequest):
         conn.close()
         return {"success": False, "message": "Aucune tâche en attente"}
     
-    # Passer la tâche en "En cours"
     cursor.execute("""
         UPDATE Demandes 
         SET statut = '🟢En cours', debut_production = datetime('now') 
         WHERE id = ?
     """, (demande[0],))
     
-    # Réinitialiser le compteur de la machine pour ce shift
     cursor.execute("""
         INSERT INTO EtatMachine (shift, compteur_actuel, last_update)
         VALUES (?, 0, datetime('now'))
@@ -96,13 +90,11 @@ def lancer_auto(req: ShiftRequest):
     conn.close()
     return {"success": True, "message": "Production lancée"}
 
-# ==================== Incrémentation (+1) ====================
 @app.post("/api/increment")
 def increment(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Vérifier qu'une tâche est en cours
     cursor.execute("""
         SELECT id, quantite, reference 
         FROM Demandes 
@@ -117,7 +109,6 @@ def increment(req: ShiftRequest):
     
     demande_id, qte_max, ref = demande
     
-    # Lire et incrémenter le compteur
     cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
     row = cursor.fetchone()
     compteur = row[0] + 1 if row else 1
@@ -130,26 +121,22 @@ def increment(req: ShiftRequest):
     termine = (compteur >= qte_max)
     
     if termine:
-        # Terminer la tâche actuelle
         cursor.execute("""
             UPDATE Demandes 
             SET statut = 'Terminé', fin_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
-        # Mettre à jour le stock
         cursor.execute("""
             UPDATE Stock 
             SET quantite = quantite + ? 
             WHERE reference = ?
         """, (qte_max, ref))
-        # Remettre le compteur à zéro
         cursor.execute("UPDATE EtatMachine SET compteur_actuel = 0 WHERE shift = ?", (req.shift,))
     
     conn.commit()
     conn.close()
     return {"success": True, "termine": termine, "compteur": compteur}
 
-# ==================== Décrémentation (-1) ====================
 @app.post("/api/decrement")
 def decrement(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
