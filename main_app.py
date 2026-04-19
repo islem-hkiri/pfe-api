@@ -1,7 +1,229 @@
 import streamlit as st
+import threading
+import os
+import sqlite3
+from datetime import datetime
+import pandas as pd
 
-# ========== PLUS DE LANCEMENT AUTOMATIQUE DE L'API ==========
-# Tu lanceras api_endpoints.py dans un terminal séparé.
+# Configuration de base
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
+
+# ================= SERVEUR FLASK POUR ESP32 =================
+# État machine partagé
+machine_state = {
+    "current_shift": "B",
+    "current_demande_id": None,
+    "current_counter": 0,
+    "required_qty": 0,
+    "production_active": False
+}
+
+def start_flask_server():
+    """Démarre le serveur Flask pour communiquer avec ESP32"""
+    from flask import Flask, request, jsonify
+    import sqlite3
+    from datetime import datetime
+    
+    app = Flask(__name__)
+    
+    @app.route('/api/etat', methods=['GET'])
+    def get_etat():
+        """ESP32 appelle cette route pour connaître l'état actuel"""
+        shift = request.args.get('shift', 'B')
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Chercher la demande en cours pour ce shift
+        cursor.execute("""
+            SELECT id, quantite, statut 
+            FROM Demandes 
+            WHERE shift = ? AND statut IN ('🟢En cours', '🟠En attente')
+            ORDER BY CASE WHEN statut = '🟢En cours' THEN 1 ELSE 2 END, id ASC
+            LIMIT 1
+        """, (shift,))
+        
+        task = cursor.fetchone()
+        conn.close()
+        
+        if task:
+            demande_id, qty, statut = task
+            if "En cours" in statut:
+                return jsonify({
+                    "statut": "En cours",
+                    "quantite_requise": qty,
+                    "demande_id": demande_id
+                })
+            else:
+                return jsonify({
+                    "statut": "En attente",
+                    "quantite_requise": qty,
+                    "demande_id": demande_id
+                })
+        else:
+            return jsonify({
+                "statut": "Libre",
+                "quantite_requise": 0,
+                "demande_id": 0
+            })
+    
+    @app.route('/api/lancer_automatique', methods=['POST'])
+    def lancer_automatique():
+        """ESP32 demande à lancer la prochaine production"""
+        data = request.get_json()
+        shift = data.get('shift', 'B')
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Chercher première demande en attente
+        cursor.execute("""
+            SELECT id, quantite, reference
+            FROM Demandes 
+            WHERE shift = ? AND statut = '🟠En attente'
+            ORDER BY date_besoin ASC, id ASC
+            LIMIT 1
+        """, (shift,))
+        
+        task = cursor.fetchone()
+        
+        if task:
+            demande_id, qty, reference = task
+            
+            # Mettre à jour le statut
+            cursor.execute("""
+                UPDATE Demandes 
+                SET statut = '🟢En cours', 
+                    debut_production = datetime('now'),
+                    operateur_id = 'ESP32_AUTO'
+                WHERE id = ?
+            """, (demande_id,))
+            
+            conn.commit()
+            conn.close()
+            
+            # Mettre à jour état machine
+            machine_state["current_shift"] = shift
+            machine_state["current_demande_id"] = demande_id
+            machine_state["current_counter"] = 0
+            machine_state["required_qty"] = qty
+            machine_state["production_active"] = True
+            
+            return jsonify({
+                "success": True,
+                "demande_id": demande_id,
+                "quantite_requise": qty,
+                "reference": reference
+            })
+        
+        conn.close()
+        return jsonify({"success": False, "message": "Aucune demande en attente"})
+    
+    @app.route('/api/increment', methods=['POST'])
+    def increment():
+        """ESP32 incrémente le compteur de production"""
+        data = request.get_json()
+        shift = data.get('shift', 'B')
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # Trouver la demande en cours
+        cursor.execute("""
+            SELECT id, quantite, reference
+            FROM Demandes 
+            WHERE shift = ? AND statut = '🟢En cours'
+            LIMIT 1
+        """, (shift,))
+        
+        task = cursor.fetchone()
+        
+        if not task:
+            conn.close()
+            return jsonify({"error": "Aucune production en cours"}), 400
+        
+        demande_id, qty_requise, reference = task
+        
+        # Synchroniser le compteur avec la tâche en cours
+        if machine_state["current_demande_id"] != demande_id:
+            machine_state["current_demande_id"] = demande_id
+            machine_state["current_counter"] = 0
+            machine_state["required_qty"] = qty_requise
+        
+        machine_state["current_counter"] += 1
+        compteur = machine_state["current_counter"]
+        
+        if compteur >= qty_requise:
+            # Terminer la production
+            cursor.execute("""
+                UPDATE Demandes 
+                SET statut = 'Terminé',
+                    fin_production = datetime('now')
+                WHERE id = ?
+            """, (demande_id,))
+            
+            # Mettre à jour le stock
+            cursor.execute("""
+                UPDATE Stock 
+                SET quantite = quantite + ?
+                WHERE reference = ?
+            """, (qty_requise, reference))
+            
+            conn.commit()
+            conn.close()
+            
+            # Réinitialiser état machine
+            machine_state["current_demande_id"] = None
+            machine_state["current_counter"] = 0
+            machine_state["production_active"] = False
+            
+            return jsonify({
+                "success": True,
+                "termine": True,
+                "compteur": compteur
+            })
+        
+        conn.close()
+        return jsonify({
+            "success": True,
+            "termine": False,
+            "compteur": compteur
+        })
+    
+    @app.route('/api/decrement', methods=['POST'])
+    def decrement():
+        """ESP32 décrémente le compteur (bouton annulation)"""
+        data = request.get_json()
+        shift = data.get('shift', 'B')
+        
+        if machine_state["current_counter"] > 0:
+            machine_state["current_counter"] -= 1
+            return jsonify({"success": True, "compteur": machine_state["current_counter"]})
+        
+        return jsonify({"success": True, "compteur": 0})
+    
+    @app.route('/api/etat_machine', methods=['GET'])
+    def get_machine_state():
+        """Route pour debug - voir l'état de la machine"""
+        return jsonify({
+            "current_shift": machine_state["current_shift"],
+            "current_demande_id": machine_state["current_demande_id"],
+            "current_counter": machine_state["current_counter"],
+            "required_qty": machine_state["required_qty"],
+            "production_active": machine_state["production_active"]
+        })
+    
+    # Démarrer Flask
+    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+
+# Démarrer Flask dans un thread séparé (une seule fois)
+if 'flask_started' not in st.session_state:
+    flask_thread = threading.Thread(target=start_flask_server, daemon=True)
+    flask_thread.start()
+    st.session_state.flask_started = True
+    print("✅ Serveur Flask démarré sur port 5000")
+
+# ================= SUITE DE L'APPLICATION STREAMLIT =================
 
 if "role" not in st.session_state:
     st.session_state.role = None
@@ -19,7 +241,7 @@ def login():
             st.session_state.role = "Opérateur"
             st.rerun()
         else:
-            st.error("Mot de passe incorrect")
+            st.error("mot de passe incorrecte")
 
 if st.session_state.role is None:
     login()
@@ -28,9 +250,35 @@ else:
         st.session_state.role = None
         st.rerun()
 
+    # Afficher l'état de la machine ESP32 dans la sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🤖 État Machine ESP32")
+    
+    # Couleurs selon l'état
+    if machine_state["production_active"]:
+        st.sidebar.markdown("🔴 **État:** En cours")
+        st.sidebar.markdown(f"**Tâche ID:** {machine_state['current_demande_id']}")
+        st.sidebar.markdown(f"**Compteur:** {machine_state['current_counter']} / {machine_state['required_qty']}")
+        # Barre de progression
+        if machine_state["required_qty"] > 0:
+            progress = machine_state["current_counter"] / machine_state["required_qty"]
+            st.sidebar.progress(progress)
+    else:
+        # Vérifier s'il y a des tâches en attente
+        conn_check = sqlite3.connect(DB_PATH)
+        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = '🟠En attente'").fetchone()[0]
+        conn_check.close()
+        
+        if pending > 0:
+            st.sidebar.markdown("🟠 **État:** En attente")
+            st.sidebar.markdown(f"**Tâches en file:** {pending}")
+        else:
+            st.sidebar.markdown("🟢 **État:** Disponible")
+    
     if st.session_state.role == "Logistique":
         st.sidebar.success("Connecté : Logistique")
         exec(open("logistique_app.py").read())
+        
     elif st.session_state.role == "Opérateur":
         st.sidebar.info("Connecté : Opérateur")
         exec(open("operateur_app.py").read())
