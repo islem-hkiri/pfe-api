@@ -24,7 +24,7 @@ const int serverPort = 5000;
 String apiBaseUrl = "http://" + String(serverIP) + ":" + String(serverPort);
 
 // ================= PINS =================
-const int PIN_LIMIT_SWITCH = 34;    // Pédale (limit switch)
+const int PIN_LIMIT_SWITCH = 32;    // Pédale (limit switch)
 const int PIN_CANCEL_BUTTON = 12;   // Bouton annulation
 const int PIN_LED_ROUGE = 14;       // LED Rouge (en cours)
 const int PIN_LED_ORANGE = 27;      // LED Orange (en attente)
