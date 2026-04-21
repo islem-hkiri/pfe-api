@@ -40,8 +40,8 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, statut 
             FROM Demandes 
-            WHERE shift = ? AND statut IN ('ðŸŸ¢ En cours', 'ðŸŸ  En attente')
-            ORDER BY CASE WHEN statut = 'ðŸŸ¢ En cours' THEN 1 ELSE 2 END, id ASC
+            WHERE shift = ? AND statut IN ('En cours', ' En attente')
+            ORDER BY CASE WHEN statut = 'En cours' THEN 1 ELSE 2 END, id ASC
             LIMIT 1
         """, (shift,))
         
@@ -50,7 +50,7 @@ def start_flask_server():
         
         if task:
             demande_id, qty, statut = task
-            if statut == 'ðŸŸ¢ En cours':
+            if statut == 'En cours':
                 return jsonify({
                     "statut": "En cours",
                     "quantite_requise": qty,
@@ -82,7 +82,7 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes 
-            WHERE shift = ? AND statut = 'ðŸŸ  En attente'
+            WHERE shift = ? AND statut = ' En attente'
             ORDER BY date_besoin ASC, id ASC
             LIMIT 1
         """, (shift,))
@@ -221,7 +221,7 @@ def start_flask_server():
         return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
     
     # DÃ©marrer Flask
-    print("ðŸš€ Demarrage du serveur Flask sur http://0.0.0.0:5000")
+    print(" Demarrage du serveur Flask sur http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # DÃ©marrer Flask dans un thread sÃ©parÃ© (une seule fois)
@@ -229,7 +229,7 @@ if 'flask_started' not in st.session_state:
     flask_thread = threading.Thread(target=start_flask_server, daemon=True)
     flask_thread.start()
     st.session_state.flask_started = True
-    print("âœ… Serveur Flask demarre sur port 5000")
+    print(" Serveur Flask demarre sur port 5000")
     time.sleep(2)  # Attendre que Flask dÃ©marre
 
 # ================= SUITE DE L'APPLICATION STREAMLIT =================
@@ -238,9 +238,9 @@ if "role" not in st.session_state:
     st.session_state.role = None
 
 def login():
-    st.title("ðŸ”§ Connexion - Gestion Production")
-    user = st.text_input("ðŸ‘¤ Utilisateur (Logistique ou Operateur)")
-    password = st.text_input("ðŸ”’ Mot de passe", type="password")
+    st.title(" Connexion - Gestion Production")
+    user = st.text_input(" Utilisateur (Logistique ou Operateur)")
+    password = st.text_input(" Mot de passe", type="password")
     
     if st.button("Se connecter"):
         if user.lower() == "logistique" and password == "log123":
@@ -250,33 +250,33 @@ def login():
             st.session_state.role = "Operateur"
             st.rerun()
         else:
-            st.error("âŒ Identifiants incorrects")
+            st.error("Identifiants incorrects")
 
 if st.session_state.role is None:
     login()
 else:
-    if st.sidebar.button("ðŸšª Deconnexion"):
+    if st.sidebar.button(" Deconnexion"):
         st.session_state.role = None
         st.rerun()
 
     # Afficher l'Ã©tat de la machine ESP32 dans la sidebar
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("ðŸ¤– Etat Machine ESP32")
+    #st.sidebar.markdown("---")
+    #st.sidebar.subheader("ðŸ¤– Etat Machine ESP32")
     
     # Tester la connexion avec l'API
     import requests
     try:
         response = requests.get("http://localhost:5000/api/health", timeout=2)
         if response.status_code == 200:
-            st.sidebar.success("âœ… API connectee")
+            st.sidebar.success(" API connectee")
         else:
-            st.sidebar.error("âŒ API erreur")
+            st.sidebar.error("API erreur")
     except:
-        st.sidebar.error("âŒ API non accessible")
+        st.sidebar.error("API non accessible")
     
     # Couleurs selon l'Ã©tat
     if machine_state["production_active"]:
-        st.sidebar.markdown("ðŸ”´ **Etat:** En cours")
+        st.sidebar.markdown(" **Etat:** En cours")
         st.sidebar.markdown(f"**Tache ID:** {machine_state['current_demande_id']}")
         st.sidebar.markdown(f"**Compteur:** {machine_state['current_counter']} / {machine_state['required_qty']}")
         if machine_state["required_qty"] > 0:
@@ -284,23 +284,23 @@ else:
             st.sidebar.progress(progress)
     else:
         conn_check = sqlite3.connect(DB_PATH)
-        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = 'ðŸŸ  En attente'").fetchone()[0]
+        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = 'En attente'").fetchone()[0]
         conn_check.close()
         
         if pending > 0:
-            st.sidebar.markdown("ðŸŸ  **Etat:** En attente")
+            st.sidebar.markdown(" **Etat:** En attente")
             st.sidebar.markdown(f"**Taches en file:** {pending}")
         else:
-            st.sidebar.markdown("ðŸŸ¢ **Etat:** Disponible")
+            st.sidebar.markdown(" **Etat:** Disponible")
     
     if st.session_state.role == "Logistique":
-        st.sidebar.success("ðŸ‘” Connecte : Logistique")
+        st.sidebar.success(" Connecte : Logistique")
         # Utiliser utf-8 encoding
         with open("logistique_app.py", "r", encoding="utf-8") as f:
             exec(f.read())
         
     elif st.session_state.role == "Operateur":
-        st.sidebar.info("ðŸ”§ Connecte : Operateur")
+        st.sidebar.info("Connecte : Operateur")
         # Utiliser utf-8 encoding
         with open("operateur_app.py", "r", encoding="utf-8") as f:
             exec(f.read())
