@@ -8,15 +8,15 @@
 #include <ArduinoJson.h>
 
 // ================= CONFIGURATION WIFI =================
-const char* ssid = "A17 de Hkiri";
-const char* password = "4w3gshixthsz8h";
+const char* ssid = "Infinix HOT 30";
+const char* password = "chaima123";
 
 // ================= CONFIGURATION SERVEUR LOCAL =================
 // !! CHANGE CETTE IP AVEC L'IP DE TON PC !!
 // Pour trouver l'IP de ton PC:
 // - Windows: ouvre cmd tape "ipconfig" -> regarde "IPv4 Address"
 // - Linux/Mac: tape "ifconfig" ou "ip addr"
-const char* serverIP = "172.31.225.33";  // <--- CHANGE ICI AVEC IP DE TON PC
+const char* serverIP = "10.221.91.33";  // <--- CHANGE ICI AVEC IP DE TON PC
 const int serverPort = 5000;              // Port Flask API
 
 // URL de base pour l'API locale
@@ -65,14 +65,14 @@ void setup() {
   Serial.print("Connexion au WiFi: ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
-  
+
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
     delay(500);
     Serial.print(".");
     attempts++;
   }
-  
+
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\n✅ WiFi connecté !");
     Serial.print("📡 IP ESP32: ");
@@ -84,7 +84,7 @@ void setup() {
   }
 
   delay(1000);
-  
+
   // Récupérer l'état initial depuis l'API
   mettreAJourEtatDepuisAPI();
 }
@@ -94,7 +94,7 @@ void setLED(bool rouge, bool orange, bool verte) {
   digitalWrite(PIN_LED_ROUGE, rouge);
   digitalWrite(PIN_LED_ORANGE, orange);
   digitalWrite(PIN_LED_VERTE, verte);
-  
+
   Serial.print("🎨 LED: R=");
   Serial.print(rouge ? "🔴" : "⚫");
   Serial.print(" O=");
@@ -112,12 +112,12 @@ int appelAPI(String endpoint, String method, String body, String &response) {
 
   HTTPClient http;
   String url = apiBaseUrl + endpoint;
-  
+
   Serial.print("📡 Appel API: ");
   Serial.print(method);
   Serial.print(" ");
   Serial.println(url);
-  
+
   if (body.length() > 0) {
     Serial.print("📦 Body: ");
     Serial.println(body);
@@ -125,7 +125,7 @@ int appelAPI(String endpoint, String method, String body, String &response) {
 
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  
+
   int httpCode;
   if (method == "GET") {
     httpCode = http.GET();
@@ -135,7 +135,7 @@ int appelAPI(String endpoint, String method, String body, String &response) {
     http.end();
     return -1;
   }
-  
+
   if (httpCode > 0) {
     response = http.getString();
     Serial.print("📨 Reponse (code ");
@@ -147,7 +147,7 @@ int appelAPI(String endpoint, String method, String body, String &response) {
     Serial.println(httpCode);
     response = "";
   }
-  
+
   http.end();
   return httpCode;
 }
@@ -156,18 +156,18 @@ int appelAPI(String endpoint, String method, String body, String &response) {
 void mettreAJourEtatDepuisAPI() {
   String endpoint = "/api/etat?shift=" + currentShift;
   String response;
-  
+
   int code = appelAPI(endpoint, "GET", "", response);
-  
+
   if (code == 200 && response.length() > 0) {
     DynamicJsonDocument doc(512);
     DeserializationError error = deserializeJson(doc, response);
-    
+
     if (!error) {
       String statut = doc["statut"] | "Libre";
       quantiteMax = doc["quantite_requise"] | 0;
       demandeId = doc["demande_id"] | 0;
-      
+
       Serial.println("--- ÉTAT REÇU ---");
       Serial.print("📌 Statut: ");
       Serial.print(statut);
@@ -175,7 +175,7 @@ void mettreAJourEtatDepuisAPI() {
       Serial.print(quantiteMax);
       Serial.print(" | Demande ID: ");
       Serial.println(demandeId);
-      
+
       // Mise à jour des LEDs selon le statut
       if (statut == "En cours") {
         productionEnCours = true;
@@ -209,14 +209,14 @@ bool lancerProduction() {
   String endpoint = "/api/lancer_automatique";
   String body = "{\"shift\":\"" + currentShift + "\"}";
   String response;
-  
+
   int code = appelAPI(endpoint, "POST", body, response);
-  
+
   if (code == 200) {
     DynamicJsonDocument doc(256);
     deserializeJson(doc, response);
     bool success = doc["success"] | false;
-    
+
     if (success) {
       Serial.println("✅ Production lancée avec succès!");
       // Récupérer les infos de la tâche
@@ -228,7 +228,7 @@ bool lancerProduction() {
       return false;
     }
   }
-  
+
   Serial.println("❌ Échec lancement production");
   return false;
 }
@@ -238,27 +238,27 @@ bool incrementerProduction() {
   String endpoint = "/api/increment";
   String body = "{\"shift\":\"" + currentShift + "\"}";
   String response;
-  
+
   int code = appelAPI(endpoint, "POST", body, response);
-  
+
   if (code == 200) {
     DynamicJsonDocument doc(256);
     deserializeJson(doc, response);
     bool termine = doc["termine"] | false;
     int compteurActuel = doc["compteur"] | 0;
-    
+
     Serial.print("📊 Compteur actuel: ");
     Serial.print(compteurActuel);
     Serial.print(" / ");
     Serial.println(quantiteMax);
-    
+
     if (termine) {
       Serial.println("🎉 PRODUCTION TERMINÉE!");
       return true;
     }
     return false;
   }
-  
+
   Serial.println("❌ Échec incrémentation");
   return false;
 }
@@ -268,14 +268,14 @@ bool decrementerProduction() {
   String endpoint = "/api/decrement";
   String body = "{\"shift\":\"" + currentShift + "\"}";
   String response;
-  
+
   int code = appelAPI(endpoint, "POST", body, response);
-  
+
   if (code == 200) {
     Serial.println("✅ Décrémentation effectuée");
     return true;
   }
-  
+
   Serial.println("❌ Échec décrémentation");
   return false;
 }
@@ -283,12 +283,12 @@ bool decrementerProduction() {
 // ================= GESTION PEDALE =================
 void gererPedale() {
   Serial.println("\n🦶 PEDALE APPUYÉE !");
-  
+
   if (!productionEnCours) {
     // Démarrer nouvelle production
     Serial.println("🚀 Tentative de démarrage...");
     setLED(HIGH, LOW, LOW);  // Rouge immédiatement
-    
+
     if (lancerProduction()) {
       productionEnCours = true;
       Serial.println("✅ Production DÉMARRÉE !");
@@ -303,18 +303,18 @@ void gererPedale() {
   else {
     // Incrémenter production en cours
     Serial.println("➕ Incrémentation...");
-    
+
     // Feedback visuel: clignotement rapide
     setLED(LOW, LOW, HIGH);
     delay(50);
     setLED(HIGH, LOW, LOW);
-    
+
     bool termine = incrementerProduction();
-    
+
     if (termine) {
       Serial.println("🏁 PRODUCTION TERMINÉE !");
       productionEnCours = false;
-      
+
       // Animation de succès: clignotement vert 3 fois
       for (int i = 0; i < 3; i++) {
         setLED(LOW, LOW, HIGH);
@@ -322,7 +322,7 @@ void gererPedale() {
         setLED(LOW, LOW, LOW);
         delay(150);
       }
-      
+
       mettreAJourEtatDepuisAPI();
     } else {
       Serial.println("✅ Incrément réussi");
@@ -333,10 +333,10 @@ void gererPedale() {
 // ================= GESTION ANNULATION =================
 void gererAnnulation() {
   Serial.println("\n❌ BOUTON ANNULATION APPUYÉ !");
-  
+
   if (productionEnCours) {
     Serial.println("➖ Décrémentation...");
-    
+
     // Feedback visuel: clignotement orange
     for (int i = 0; i < 2; i++) {
       setLED(LOW, HIGH, LOW);
@@ -344,7 +344,7 @@ void gererAnnulation() {
       setLED(HIGH, LOW, LOW);
       delay(100);
     }
-    
+
     if (decrementerProduction()) {
       Serial.println("✅ -1 effectué");
     }
@@ -357,7 +357,7 @@ void gererAnnulation() {
 void loop() {
   bool limitState = digitalRead(PIN_LIMIT_SWITCH);
   bool cancelState = digitalRead(PIN_CANCEL_BUTTON);
-  
+
   // Détection front descendant (appui)
   if ((millis() - lastDebounceTime) > debounceDelay) {
     // Pedale: HIGH -> LOW (appui)
@@ -365,23 +365,23 @@ void loop() {
       gererPedale();
       lastDebounceTime = millis();
     }
-    
+
     // Bouton annulation: HIGH -> LOW (appui)
     if (lastCancelState == HIGH && cancelState == LOW) {
       gererAnnulation();
       lastDebounceTime = millis();
     }
   }
-  
+
   lastLimitState = limitState;
   lastCancelState = cancelState;
-  
+
   // Mise à jour périodique de l'état
   if (millis() - lastLEDUpdate > LED_UPDATE_INTERVAL) {
     Serial.println("\n--- 🔄 Mise à jour périodique ---");
     mettreAJourEtatDepuisAPI();
     lastLEDUpdate = millis();
   }
-  
+
   delay(50);
 }
