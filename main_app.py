@@ -4,6 +4,8 @@ import os
 import sqlite3
 from datetime import datetime
 import pandas as pd
+import subprocess
+import time
 
 # Configuration de base
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -38,8 +40,8 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, statut 
             FROM Demandes 
-            WHERE shift = ? AND statut IN ('🟢En cours', '🟠En attente')
-            ORDER BY CASE WHEN statut = '🟢En cours' THEN 1 ELSE 2 END, id ASC
+            WHERE shift = ? AND statut IN ('🟢 En cours', '🟠 En attente')
+            ORDER BY CASE WHEN statut = '🟢 En cours' THEN 1 ELSE 2 END, id ASC
             LIMIT 1
         """, (shift,))
         
@@ -48,7 +50,7 @@ def start_flask_server():
         
         if task:
             demande_id, qty, statut = task
-            if "En cours" in statut:
+            if statut == '🟢 En cours':
                 return jsonify({
                     "statut": "En cours",
                     "quantite_requise": qty,
@@ -80,7 +82,7 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes 
-            WHERE shift = ? AND statut = '🟠En attente'
+            WHERE shift = ? AND statut = '🟠 En attente'
             ORDER BY date_besoin ASC, id ASC
             LIMIT 1
         """, (shift,))
@@ -93,7 +95,7 @@ def start_flask_server():
             # Mettre à jour le statut
             cursor.execute("""
                 UPDATE Demandes 
-                SET statut = '🟢En cours', 
+                SET statut = '🟢 En cours', 
                     debut_production = datetime('now'),
                     operateur_id = 'ESP32_AUTO'
                 WHERE id = ?
@@ -132,7 +134,7 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes 
-            WHERE shift = ? AND statut = '🟢En cours'
+            WHERE shift = ? AND statut = '🟢 En cours'
             LIMIT 1
         """, (shift,))
         
@@ -157,7 +159,7 @@ def start_flask_server():
             # Terminer la production
             cursor.execute("""
                 UPDATE Demandes 
-                SET statut = 'Terminé',
+                SET statut = '✅ Terminé',
                     fin_production = datetime('now')
                 WHERE id = ?
             """, (demande_id,))
@@ -213,7 +215,13 @@ def start_flask_server():
             "production_active": machine_state["production_active"]
         })
     
+    @app.route('/api/health', methods=['GET'])
+    def health():
+        """Route de health check"""
+        return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
+    
     # Démarrer Flask
+    print("🚀 Démarrage du serveur Flask sur http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # Démarrer Flask dans un thread séparé (une seule fois)
@@ -222,6 +230,7 @@ if 'flask_started' not in st.session_state:
     flask_thread.start()
     st.session_state.flask_started = True
     print("✅ Serveur Flask démarré sur port 5000")
+    time.sleep(2)  # Attendre que Flask démarre
 
 # ================= SUITE DE L'APPLICATION STREAMLIT =================
 
@@ -229,9 +238,9 @@ if "role" not in st.session_state:
     st.session_state.role = None
 
 def login():
-    st.title("Connexion")
-    user = st.text_input("Utilisateur (Logistique ou Opérateur)")
-    password = st.text_input("Mot de passe", type="password")
+    st.title("🔧 Connexion - Gestion Production")
+    user = st.text_input("👤 Utilisateur (Logistique ou Opérateur)")
+    password = st.text_input("🔒 Mot de passe", type="password")
     
     if st.button("Se connecter"):
         if user.lower() == "logistique" and password == "log123":
@@ -241,12 +250,12 @@ def login():
             st.session_state.role = "Opérateur"
             st.rerun()
         else:
-            st.error("mot de passe incorrecte")
+            st.error("❌ Identifiants incorrects")
 
 if st.session_state.role is None:
     login()
 else:
-    if st.sidebar.button("Déconnexion"):
+    if st.sidebar.button("🚪 Déconnexion"):
         st.session_state.role = None
         st.rerun()
 
@@ -254,19 +263,28 @@ else:
     st.sidebar.markdown("---")
     st.sidebar.subheader("🤖 État Machine ESP32")
     
+    # Tester la connexion avec l'API
+    import requests
+    try:
+        response = requests.get("http://localhost:5000/api/health", timeout=2)
+        if response.status_code == 200:
+            st.sidebar.success("✅ API connectée")
+        else:
+            st.sidebar.error("❌ API erreur")
+    except:
+        st.sidebar.error("❌ API non accessible")
+    
     # Couleurs selon l'état
     if machine_state["production_active"]:
         st.sidebar.markdown("🔴 **État:** En cours")
         st.sidebar.markdown(f"**Tâche ID:** {machine_state['current_demande_id']}")
         st.sidebar.markdown(f"**Compteur:** {machine_state['current_counter']} / {machine_state['required_qty']}")
-        # Barre de progression
         if machine_state["required_qty"] > 0:
             progress = machine_state["current_counter"] / machine_state["required_qty"]
             st.sidebar.progress(progress)
     else:
-        # Vérifier s'il y a des tâches en attente
         conn_check = sqlite3.connect(DB_PATH)
-        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = '🟠En attente'").fetchone()[0]
+        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = '🟠 En attente'").fetchone()[0]
         conn_check.close()
         
         if pending > 0:
@@ -276,9 +294,9 @@ else:
             st.sidebar.markdown("🟢 **État:** Disponible")
     
     if st.session_state.role == "Logistique":
-        st.sidebar.success("Connecté : Logistique")
+        st.sidebar.success("👔 Connecté : Logistique")
         exec(open("logistique_app.py").read())
         
     elif st.session_state.role == "Opérateur":
-        st.sidebar.info("Connecté : Opérateur")
+        st.sidebar.info("🔧 Connecté : Opérateur")
         exec(open("operateur_app.py").read())

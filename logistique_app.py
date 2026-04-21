@@ -16,31 +16,31 @@ if not os.path.exists(DB_PATH):
 
 st_autorefresh(interval=5000, key="log_refresh")
 
-st.sidebar.title("Tableau de Bord")
+st.sidebar.title("📊 Tableau de Bord")
 
 conn = sqlite3.connect(DB_PATH)
 
-total = conn.execute("SELECT COUNT(*) FROM Demandes").fetchone()[0]
-termine = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut='Termine'").fetchone()[0]
+total = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut NOT IN ('📦 Archivé')").fetchone()[0]
+termine = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut='✅ Terminé'").fetchone()[0]
 
-st.sidebar.metric("Total demandes", total)
-st.sidebar.metric("Terminees", termine)
+st.sidebar.metric("📋 Total demandes", total)
+st.sidebar.metric("✅ Terminées", termine)
 
-df_time = pd.read_sql_query("SELECT (strftime('%s', fin_production) - strftime('%s', debut_production)) as duree FROM Demandes WHERE statut='Termine'", conn)
+df_time = pd.read_sql_query("SELECT (strftime('%s', fin_production) - strftime('%s', debut_production)) as duree FROM Demandes WHERE statut='✅ Terminé'", conn)
 
 if not df_time.empty and pd.notna(df_time['duree'].mean()):
-    st.sidebar.metric("Temps moyen (s)", int(df_time['duree'].mean()))
+    st.sidebar.metric("⏱️ Temps moyen (s)", int(df_time['duree'].mean()))
 else:
-    st.sidebar.metric("Temps moyen (s)", "0")
+    st.sidebar.metric("⏱️ Temps moyen (s)", "0")
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("Performance (KPI)")
+st.sidebar.subheader("📈 Performance (KPI)")
 
 TEMPS_SHIFT_SEC = 8 * 3600 
 
 df_occ = pd.read_sql_query("""
 SELECT SUM(strftime('%s', fin_production) - strftime('%s', debut_production)) as total_prod
-FROM Demandes WHERE statut='Termine' AND date(fin_production) = date('now')
+FROM Demandes WHERE statut='✅ Terminé' AND date(fin_production) = date('now')
 """, conn)
 
 if not df_occ.empty and df_occ['total_prod'].iloc[0] is not None:
@@ -48,13 +48,13 @@ if not df_occ.empty and df_occ['total_prod'].iloc[0] is not None:
     taux = (total_sec / TEMPS_SHIFT_SEC) * 100
     taux_clean = min(int(taux), 100)
     
-    st.sidebar.metric("Taux d'Occupation Jour", f"{taux_clean}%")
+    st.sidebar.metric("📊 Taux d'Occupation Jour", f"{taux_clean}%")
     st.sidebar.progress(taux_clean / 100)
     
     if taux > 85:
-        st.sidebar.warning("Charge elevee detectee !")
+        st.sidebar.warning("⚠️ Charge élevée détectée !")
 else:
-    st.sidebar.info("Attente de donnees de production...")
+    st.sidebar.info("📭 Attente de données de production...")
 
 df_urg = pd.read_sql_query("""
 SELECT urgence, COUNT(*) as total
@@ -69,20 +69,20 @@ try:
     query_hist = ("""
     SELECT heure_demande, COUNT(reference) as Nb_Refs
     FROM Demandes 
-    WHERE statut != 'Archive'
+    WHERE statut != '📦 Archivé'
     GROUP BY heure_demande 
     ORDER BY heure_demande DESC LIMIT 10
     """)
     df_hist = pd.read_sql_query(query_hist, conn)
 
     if not df_hist.empty:
-        if st.sidebar.button("Vider l'historique", use_container_width=True):
-            conn.execute("UPDATE Demandes SET statut = 'Archive' WHERE statut != 'Archive'")
+        if st.sidebar.button("🗑️ Vider l'historique", use_container_width=True):
+            conn.execute("UPDATE Demandes SET statut = '📦 Archivé' WHERE statut NOT IN ('📦 Archivé')")
             conn.commit()
             st.rerun()
             
         for index, row in df_hist.iterrows():
-            with st.sidebar.expander(f"Liste du {row['heure_demande']}"):
+            with st.sidebar.expander(f"📅 Liste du {row['heure_demande']}"):
                 details = conn.execute("""
                     SELECT reference, quantite, statut 
                     FROM Demandes WHERE heure_demande = ?
@@ -91,9 +91,9 @@ try:
 except Exception as e:
     st.sidebar.error(f"Erreur historique: {e}")
 
-st.title("Demandes (Poste Soudure)")
+st.title("🏭 Demandes (Poste Soudure)")
 
-st.subheader("Alertes de Panne en Temps Reel")
+st.subheader("🚨 Alertes de Panne en Temps Réel")
 
 try:
     df_alertes = pd.read_sql_query("""
@@ -106,45 +106,45 @@ try:
     if not df_alertes.empty:
         for index, row in df_alertes.iterrows():
             st.error(f"""
-                **NOUVELLE ALERTE RECUE**
-                * **Message de l'Operateur :** {row['cause']}
-                * **Envoye par :** {row['operateur_id']}
+                🔴 **NOUVELLE ALERTE REÇUE**
+                * **Message de l'Opérateur :** {row['cause']}
+                * **Envoyé par :** {row['operateur_id']}
                 * **Heure :** {row['debut_panne']}
             """)
         
-        if st.button("Confirmer la reception / Traiter"):
-            conn.execute("UPDATE Pannes SET statut = 'Resolu', fin_panne = datetime('now') WHERE statut = 'Ouvert'")
+        if st.button("✅ Confirmer la réception / Traiter"):
+            conn.execute("UPDATE Pannes SET statut = 'Résolu', fin_panne = datetime('now') WHERE statut = 'Ouvert'")
             conn.commit()
-            st.success("L'alerte a ete marquee comme traitee.")
+            st.success("✅ L'alerte a été marquée comme traitée.")
             st.rerun()
     else:
-        st.success("Aucune panne signalee pour le moment.")
+        st.success("✅ Aucune panne signalée pour le moment.")
 
 except Exception as e:
-    st.info("Systeme d'alertes pret (en attente de messages...).")
+    st.info("🔧 Système d'alertes prêt (en attente de messages...).")
 
-st.subheader("Suivi des fabrications en temps reel")
+st.subheader("📋 Suivi des fabrications en temps réel")
 
 try:
     query_suivi = """
     SELECT reference, quantite, urgence, statut, operateur_id
     FROM Demandes
-    WHERE statut IN ('En attente', 'En cours')
-    ORDER BY CASE WHEN statut = 'En cours' THEN 1 ELSE 2 END, id DESC
+    WHERE statut IN ('🟠 En attente', '🟢 En cours')
+    ORDER BY CASE WHEN statut = '🟢 En cours' THEN 1 ELSE 2 END, id DESC
     """
     encours_data = conn.execute(query_suivi).fetchall()
 
     if encours_data:
-        df_suivi = pd.DataFrame(encours_data, columns=["Reference", "Qte", "Urgence", "Etat", "Operateur"])
+        df_suivi = pd.DataFrame(encours_data, columns=["Référence", "Qté", "Urgence", "État", "Opérateur"])
         st.dataframe(df_suivi, use_container_width=True, hide_index=True)
     else:
-        st.success("Aucune production en attente.")
+        st.success("✅ Aucune production en attente.")
 
 except Exception as e:
     st.error(f"Erreur de lecture du suivi: {e}")
 
 st.markdown("---")
-st.subheader("Nouvelle Demande de Production")
+st.subheader("📝 Nouvelle Demande de Production")
 
 if "panier" not in st.session_state:
     st.session_state.panier = []
@@ -154,13 +154,13 @@ with st.container():
     with c1:
         df_stock_info = pd.read_sql_query("SELECT reference, quantite FROM Stock", conn)
         refs = df_stock_info['reference'].tolist()
-        ref_choisie = st.selectbox("Reference", refs)
-        qte_voulue = st.number_input("Quantite totale souhaitee", 1, 10000, 50)
+        ref_choisie = st.selectbox("🔧 Référence", refs)
+        qte_voulue = st.number_input("📦 Quantité totale souhaitée", 1, 10000, 50)
     with c2:
-        urg = st.selectbox("Urgence", ["Normal", "Urgent", "Critique"])
-        date_b = st.date_input("Date de besoin")
+        urg = st.selectbox("⚡ Urgence", ["Normal", "Urgent", "Critique"])
+        date_b = st.date_input("📅 Date de besoin")
 
-    if st.button("Ajouter a la liste", use_container_width=True):
+    if st.button("➕ Ajouter à la liste", use_container_width=True):
         st.session_state.panier.append({
             "Reference": ref_choisie,
             "Quantite": qte_voulue,
@@ -169,16 +169,16 @@ with st.container():
         })
 
 if st.session_state.panier:
-    st.write("Liste en cours de preparation")
+    st.write("📋 Liste en cours de préparation")
     st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True)
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        if st.button("Annuler tout", use_container_width=True):
+        if st.button("❌ Annuler tout", use_container_width=True):
             st.session_state.panier = []
             st.rerun()
     with col_b2:
-        if st.button("Envoyer au montage", type="primary", use_container_width=True):
+        if st.button("📤 Envoyer au montage", type="primary", use_container_width=True):
             maintenant = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             for item in st.session_state.panier:
                 res = conn.execute("SELECT quantite FROM Stock WHERE reference = ?", (item['Reference'],)).fetchone()
@@ -190,32 +190,32 @@ if st.session_state.panier:
                         conn.execute("""
                             INSERT INTO Demandes 
                             (reference, quantite, date_besoin, shift, statut, urgence, heure_demande) 
-                            VALUES (?, ?, ?, ?, 'En attente', ?, ?)
+                            VALUES (?, ?, ?, ?, '🟠 En attente', ?, ?)
                         """, (item['Reference'], besoin_reel, item['Date_Besoin'], s, item['Urgence'], maintenant))
                 else:
-                    st.warning(f"Stock suffisant pour {item['Reference']}")
+                    st.warning(f"⚠️ Stock suffisant pour {item['Reference']}")
 
             conn.commit()
             st.session_state.panier = []
-            st.success("Demandes envoyees avec succes !")
+            st.success("✅ Demandes envoyées avec succès !")
             st.rerun()
 
 st.markdown("---")
-st.subheader("Historique de Production (Journalier)")
+st.subheader("📈 Historique de Production (Journalier)")
 
 try:
     df_chart = pd.read_sql_query("""
         SELECT date(fin_production) as jour, COUNT(*) as total
-        FROM Demandes WHERE statut='Termine'
+        FROM Demandes WHERE statut='✅ Terminé'
         GROUP BY jour ORDER BY jour
     """, conn)
 
     if not df_chart.empty:
         st.line_chart(df_chart.set_index("jour"))
     else:
-        st.info("Aucune donnee terminee pour le moment.")
+        st.info("📭 Aucune donnée terminée pour le moment.")
 
 except Exception as e:
-    st.info("En attente de donnees pour l'affichage du graphique.")
+    st.info("📭 En attente de données pour l'affichage du graphique.")
 
 conn.close()
