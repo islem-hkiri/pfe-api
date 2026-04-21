@@ -18,11 +18,11 @@ def generate_unique_key(base_name):
     return f"{base_name}_{st.session_state.task_counter}"
 
 with st.sidebar:
-    st.title("ðŸ‘¤ Identification")
-    id_op_saisie = st.text_input("ID OpÃ©rateur", key="operateur_id")
+    st.title("Identification")
+    id_op_saisie = st.text_input("ID Operateur",key="operateur_id")
     shift = st.radio("Shift", ["A", "B"], key="shift_selection", horizontal=True)
     
-    st.subheader("ðŸš¨ Signalement Panne")
+    st.subheader("Signalement Panne")
     with st.expander("ðŸ“¢ DÃ©clarer une Panne"):
         cause = st.text_input("Cause de la panne", key="panne_cause")
         
