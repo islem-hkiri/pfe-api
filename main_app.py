@@ -4,6 +4,7 @@ import os
 import sqlite3
 from datetime import datetime
 import pandas as pd
+import subprocess
 import time
 
 # Configuration de base
@@ -76,16 +77,6 @@ def start_flask_server():
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        @app.route('/api/envoyer_au_montage', methods=['POST'])
-        def envoyer_au_montage():
-            data = request.get_json()
-            demande_id = data.get('demande_id')
-            shift = data.get('shift')
-
-    # هنا تزيد الكود باش تبدل حالة الطلبية في قاعدة البيانات
-    # مثلاً: update_demande_statut(demande_id, 'En cours')
-
-        return jsonify({"success": True, "message": f"Demande {demande_id} envoyée au montage (Shift {shift})"})
         
         # Chercher première demande en attente
         cursor.execute("""
@@ -230,7 +221,7 @@ def start_flask_server():
         return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
     
     # Démarrer Flask
-    print("🚀 Serveur Flask démarré sur http://0.0.0.0:5000")
+    print("🚀 Démarrage du serveur Flask sur http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
 # Démarrer Flask dans un thread séparé (une seule fois)
@@ -239,7 +230,7 @@ if 'flask_started' not in st.session_state:
     flask_thread.start()
     st.session_state.flask_started = True
     print("✅ Serveur Flask démarré sur port 5000")
-    time.sleep(2)
+    time.sleep(2)  # Attendre que Flask démarre
 
 # ================= SUITE DE L'APPLICATION STREAMLIT =================
 
@@ -269,6 +260,10 @@ else:
         st.rerun()
 
     # Afficher l'état de la machine ESP32 dans la sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🤖 État Machine ESP32")
+    
+    # Tester la connexion avec l'API
     import requests
     try:
         response = requests.get("http://localhost:5000/api/health", timeout=2)
@@ -279,7 +274,7 @@ else:
     except:
         st.sidebar.error("❌ API non accessible")
     
-    # Afficher l'état selon machine_state
+    # Couleurs selon l'état
     if machine_state["production_active"]:
         st.sidebar.markdown("🔴 **État:** En cours")
         st.sidebar.markdown(f"**Tâche ID:** {machine_state['current_demande_id']}")
@@ -300,10 +295,8 @@ else:
     
     if st.session_state.role == "Logistique":
         st.sidebar.success("👔 Connecté : Logistique")
-        with open("logistique_app.py", "r", encoding="utf-8") as f:
-            exec(f.read())
+        exec(open("logistique_app.py").read())
         
     elif st.session_state.role == "Opérateur":
         st.sidebar.info("🔧 Connecté : Opérateur")
-        with open("operateur_app.py", "r", encoding="utf-8") as f:
-            exec(f.read())
+        exec(open("operateur_app.py").read())

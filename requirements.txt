@@ -4,4 +4,3 @@ openpyxl
 flask
 requests
 streamlit-autorefresh
-pyarrow
