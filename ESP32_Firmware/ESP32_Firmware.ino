@@ -17,7 +17,7 @@ const char* password = "chaima123";
 // Pour trouver l'IP de ton PC:
 // - Windows: cmd -> ipconfig -> "IPv4 Address"
 // - Linux/Mac: ifconfig ou ip addr
-const char* serverIP = "192.168.1.100";  // <--- CHANGE ICI AVEC L'IP DE TON PC !!!
+const char* serverIP = "10.221.91.33";  // <--- CHANGE ICI AVEC L'IP DE TON PC !!!
 const int serverPort = 5000;
 
 // URL de base
