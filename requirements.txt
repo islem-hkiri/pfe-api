@@ -1,7 +1,6 @@
-fastapi
-uvicorn
-python-multipart
 streamlit
 pandas
 openpyxl
+flask
+requests
 streamlit-autorefresh
