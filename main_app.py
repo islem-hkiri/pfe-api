@@ -76,6 +76,16 @@ def start_flask_server():
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        @app.route('/api/envoyer_au_montage', methods=['POST'])
+        def envoyer_au_montage():
+            data = request.get_json()
+            demande_id = data.get('demande_id')
+            shift = data.get('shift')
+
+    # هنا تزيد الكود باش تبدل حالة الطلبية في قاعدة البيانات
+    # مثلاً: update_demande_statut(demande_id, 'En cours')
+
+        return jsonify({"success": True, "message": f"Demande {demande_id} envoyée au montage (Shift {shift})"})
         
         # Chercher première demande en attente
         cursor.execute("""
