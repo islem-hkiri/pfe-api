@@ -4,7 +4,6 @@ import os
 import sqlite3
 from datetime import datetime
 import pandas as pd
-import subprocess
 import time
 
 # Configuration de base
@@ -12,7 +11,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 
 # ================= SERVEUR FLASK POUR ESP32 =================
-# Ã‰tat machine partagÃ©
+# État machine partagé
 machine_state = {
     "current_shift": "B",
     "current_demande_id": None,
@@ -22,7 +21,7 @@ machine_state = {
 }
 
 def start_flask_server():
-    """DÃ©marre le serveur Flask pour communiquer avec ESP32"""
+    """Démarre le serveur Flask pour communiquer avec ESP32"""
     from flask import Flask, request, jsonify
     import sqlite3
     from datetime import datetime
@@ -31,7 +30,7 @@ def start_flask_server():
     
     @app.route('/api/etat', methods=['GET'])
     def get_etat():
-        """ESP32 appelle cette route pour connaÃ®tre l'Ã©tat actuel"""
+        """ESP32 appelle cette route pour connaître l'état actuel"""
         shift = request.args.get('shift', 'B')
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -40,8 +39,8 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, statut 
             FROM Demandes 
-            WHERE shift = ? AND statut IN ('En cours', ' En attente')
-            ORDER BY CASE WHEN statut = 'En cours' THEN 1 ELSE 2 END, id ASC
+            WHERE shift = ? AND statut IN ('🟢 En cours', '🟠 En attente')
+            ORDER BY CASE WHEN statut = '🟢 En cours' THEN 1 ELSE 2 END, id ASC
             LIMIT 1
         """, (shift,))
         
@@ -50,7 +49,7 @@ def start_flask_server():
         
         if task:
             demande_id, qty, statut = task
-            if statut == 'En cours':
+            if statut == '🟢 En cours':
                 return jsonify({
                     "statut": "En cours",
                     "quantite_requise": qty,
@@ -71,18 +70,18 @@ def start_flask_server():
     
     @app.route('/api/lancer_automatique', methods=['POST'])
     def lancer_automatique():
-        """ESP32 demande Ã  lancer la prochaine production"""
+        """ESP32 demande à lancer la prochaine production"""
         data = request.get_json()
         shift = data.get('shift', 'B')
         
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # Chercher premiÃ¨re demande en attente
+        # Chercher première demande en attente
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes 
-            WHERE shift = ? AND statut = ' En attente'
+            WHERE shift = ? AND statut = '🟠 En attente'
             ORDER BY date_besoin ASC, id ASC
             LIMIT 1
         """, (shift,))
@@ -92,10 +91,10 @@ def start_flask_server():
         if task:
             demande_id, qty, reference = task
             
-            # Mettre Ã  jour le statut
+            # Mettre à jour le statut
             cursor.execute("""
                 UPDATE Demandes 
-                SET statut = 'ðŸŸ¢ En cours', 
+                SET statut = '🟢 En cours', 
                     debut_production = datetime('now'),
                     operateur_id = 'ESP32_AUTO'
                 WHERE id = ?
@@ -104,7 +103,7 @@ def start_flask_server():
             conn.commit()
             conn.close()
             
-            # Mettre Ã  jour Ã©tat machine
+            # Mettre à jour état machine
             machine_state["current_shift"] = shift
             machine_state["current_demande_id"] = demande_id
             machine_state["current_counter"] = 0
@@ -123,7 +122,7 @@ def start_flask_server():
     
     @app.route('/api/increment', methods=['POST'])
     def increment():
-        """ESP32 incrÃ©mente le compteur de production"""
+        """ESP32 incrémente le compteur de production"""
         data = request.get_json()
         shift = data.get('shift', 'B')
         
@@ -134,7 +133,7 @@ def start_flask_server():
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes 
-            WHERE shift = ? AND statut = 'ðŸŸ¢ En cours'
+            WHERE shift = ? AND statut = '🟢 En cours'
             LIMIT 1
         """, (shift,))
         
@@ -146,7 +145,7 @@ def start_flask_server():
         
         demande_id, qty_requise, reference = task
         
-        # Synchroniser le compteur avec la tÃ¢che en cours
+        # Synchroniser le compteur avec la tâche en cours
         if machine_state["current_demande_id"] != demande_id:
             machine_state["current_demande_id"] = demande_id
             machine_state["current_counter"] = 0
@@ -159,12 +158,12 @@ def start_flask_server():
             # Terminer la production
             cursor.execute("""
                 UPDATE Demandes 
-                SET statut = 'âœ… TerminÃ©',
+                SET statut = '✅ Terminé',
                     fin_production = datetime('now')
                 WHERE id = ?
             """, (demande_id,))
             
-            # Mettre Ã  jour le stock
+            # Mettre à jour le stock
             cursor.execute("""
                 UPDATE Stock 
                 SET quantite = quantite + ?
@@ -174,7 +173,7 @@ def start_flask_server():
             conn.commit()
             conn.close()
             
-            # RÃ©initialiser Ã©tat machine
+            # Réinitialiser état machine
             machine_state["current_demande_id"] = None
             machine_state["current_counter"] = 0
             machine_state["production_active"] = False
@@ -194,7 +193,7 @@ def start_flask_server():
     
     @app.route('/api/decrement', methods=['POST'])
     def decrement():
-        """ESP32 dÃ©crÃ©mente le compteur (bouton annulation)"""
+        """ESP32 décrémente le compteur (bouton annulation)"""
         data = request.get_json()
         shift = data.get('shift', 'B')
         
@@ -206,7 +205,7 @@ def start_flask_server():
     
     @app.route('/api/etat_machine', methods=['GET'])
     def get_machine_state():
-        """Route pour debug - voir l'Ã©tat de la machine"""
+        """Route pour debug - voir l'état de la machine"""
         return jsonify({
             "current_shift": machine_state["current_shift"],
             "current_demande_id": machine_state["current_demande_id"],
@@ -220,17 +219,17 @@ def start_flask_server():
         """Route de health check"""
         return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
     
-    # DÃ©marrer Flask
-    print(" Demarrage du serveur Flask sur http://0.0.0.0:5000")
+    # Démarrer Flask
+    print("🚀 Serveur Flask démarré sur http://0.0.0.0:5000")
     app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
 
-# DÃ©marrer Flask dans un thread sÃ©parÃ© (une seule fois)
+# Démarrer Flask dans un thread séparé (une seule fois)
 if 'flask_started' not in st.session_state:
     flask_thread = threading.Thread(target=start_flask_server, daemon=True)
     flask_thread.start()
     st.session_state.flask_started = True
-    print(" Serveur Flask demarre sur port 5000")
-    time.sleep(2)  # Attendre que Flask dÃ©marre
+    print("✅ Serveur Flask démarré sur port 5000")
+    time.sleep(2)
 
 # ================= SUITE DE L'APPLICATION STREAMLIT =================
 
@@ -238,69 +237,63 @@ if "role" not in st.session_state:
     st.session_state.role = None
 
 def login():
-    st.title(" Connexion - Gestion Production")
-    user = st.text_input(" Utilisateur (Logistique ou Operateur)")
-    password = st.text_input(" Mot de passe", type="password")
+    st.title("🔧 Connexion - Gestion Production")
+    user = st.text_input("👤 Utilisateur (Logistique ou Opérateur)")
+    password = st.text_input("🔒 Mot de passe", type="password")
     
     if st.button("Se connecter"):
         if user.lower() == "logistique" and password == "log123":
             st.session_state.role = "Logistique"
             st.rerun()
         elif user.lower() == "operateur" and password == "op123":
-            st.session_state.role = "Operateur"
+            st.session_state.role = "Opérateur"
             st.rerun()
         else:
-            st.error("Identifiants incorrects")
+            st.error("❌ Identifiants incorrects")
 
 if st.session_state.role is None:
     login()
 else:
-    if st.sidebar.button(" Deconnexion"):
+    if st.sidebar.button("🚪 Déconnexion"):
         st.session_state.role = None
         st.rerun()
 
-    # Afficher l'Ã©tat de la machine ESP32 dans la sidebar
-    #st.sidebar.markdown("---")
-    #st.sidebar.subheader("ðŸ¤– Etat Machine ESP32")
-    
-    # Tester la connexion avec l'API
+    # Afficher l'état de la machine ESP32 dans la sidebar
     import requests
     try:
         response = requests.get("http://localhost:5000/api/health", timeout=2)
         if response.status_code == 200:
-            st.sidebar.success(" API connectee")
+            st.sidebar.success("✅ API connectée")
         else:
-            st.sidebar.error("API erreur")
+            st.sidebar.error("❌ API erreur")
     except:
-        st.sidebar.error("API non accessible")
+        st.sidebar.error("❌ API non accessible")
     
-    # Couleurs selon l'Ã©tat
+    # Afficher l'état selon machine_state
     if machine_state["production_active"]:
-        st.sidebar.markdown(" **Etat:** En cours")
-        st.sidebar.markdown(f"**Tache ID:** {machine_state['current_demande_id']}")
+        st.sidebar.markdown("🔴 **État:** En cours")
+        st.sidebar.markdown(f"**Tâche ID:** {machine_state['current_demande_id']}")
         st.sidebar.markdown(f"**Compteur:** {machine_state['current_counter']} / {machine_state['required_qty']}")
         if machine_state["required_qty"] > 0:
             progress = machine_state["current_counter"] / machine_state["required_qty"]
             st.sidebar.progress(progress)
     else:
         conn_check = sqlite3.connect(DB_PATH)
-        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = 'En attente'").fetchone()[0]
+        pending = conn_check.execute("SELECT COUNT(*) FROM Demandes WHERE statut = '🟠 En attente'").fetchone()[0]
         conn_check.close()
         
         if pending > 0:
-            st.sidebar.markdown(" **Etat:** En attente")
-            st.sidebar.markdown(f"**Taches en file:** {pending}")
+            st.sidebar.markdown("🟠 **État:** En attente")
+            st.sidebar.markdown(f"**Tâches en file:** {pending}")
         else:
-            st.sidebar.markdown(" **Etat:** Disponible")
+            st.sidebar.markdown("🟢 **État:** Disponible")
     
     if st.session_state.role == "Logistique":
-        st.sidebar.success(" Connecte : Logistique")
-        # Utiliser utf-8 encoding
+        st.sidebar.success("👔 Connecté : Logistique")
         with open("logistique_app.py", "r", encoding="utf-8") as f:
             exec(f.read())
         
-    elif st.session_state.role == "Operateur":
-        st.sidebar.info("Connecte : Operateur")
-        # Utiliser utf-8 encoding
+    elif st.session_state.role == "Opérateur":
+        st.sidebar.info("🔧 Connecté : Opérateur")
         with open("operateur_app.py", "r", encoding="utf-8") as f:
             exec(f.read())
