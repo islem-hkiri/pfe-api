@@ -64,7 +64,7 @@ def init_db():
         quantite INTEGER,
         date_besoin TEXT,
         shift TEXT,
-        statut TEXT DEFAULT '🟠 En attente',
+        statut TEXT DEFAULT 'ðŸŸ  En attente',
         urgence TEXT,
         heure_demande TEXT,
         debut_production TEXT,
