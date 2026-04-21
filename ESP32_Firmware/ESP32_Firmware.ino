@@ -100,7 +100,7 @@ void setup() {
   // Récupérer l'état initial depuis l'API
   Serial.println("\n🔍 Récupération état initial...");
   mettreAJourEtatDepuisAPI();
-  
+
   Serial.println("\n✅ ESP32 prêt !");
   Serial.println("🦶 Appuyez sur la pédale pour démarrer");
   Serial.println("❌ Bouton rouge pour annuler\n");
@@ -234,7 +234,7 @@ void mettreAJourEtatDepuisAPI() {
     Serial.print("❌ Échec récupération état (code: ");
     Serial.print(code);
     Serial.println(")");
-    
+
     // En cas d'erreur répétée, clignotement LED rouge pour alerter
     if (erreurConsecutive >= MAX_ERREURS) {
       Serial.println("🚨 TROP D'ERREURS! Vérifiez la connexion avec le PC!");
@@ -253,7 +253,7 @@ void mettreAJourEtatDepuisAPI() {
 // ================= LANCER PRODUCTION =================
 bool lancerProduction() {
   Serial.println("\n🚀 Tentative de lancement production...");
-  
+
   String endpoint = "/api/lancer_automatique";
   String body = "{\"shift\":\"" + currentShift + "\"}";
   String response;
@@ -263,25 +263,25 @@ bool lancerProduction() {
   if (code == 200) {
     DynamicJsonDocument doc(256);
     DeserializationError error = deserializeJson(doc, response);
-    
+
     if (!error) {
       bool success = doc["success"] | false;
 
       if (success) {
         demandeId = doc["demande_id"] | 0;
         quantiteMax = doc["quantite_requise"] | 0;
-        
+
         Serial.println("✅ Production lancée avec succès!");
         Serial.print("📋 Demande ID: ");
         Serial.println(demandeId);
         Serial.print("🔢 Quantité à produire: ");
         Serial.println(quantiteMax);
-        
+
         productionEnCours = true;
         compteurLocal = 0;
         dernierIncrement = millis();
         setLED(HIGH, LOW, LOW);  // Rouge
-        
+
         return true;
       } else {
         String message = doc["message"] | "Aucune demande";
@@ -310,11 +310,11 @@ bool incrementerProduction() {
   if (code == 200) {
     DynamicJsonDocument doc(256);
     DeserializationError error = deserializeJson(doc, response);
-    
+
     if (!error) {
       bool termine = doc["termine"] | false;
       int compteurActuel = doc["compteur"] | 0;
-      
+
       compteurLocal = compteurActuel;
       dernierIncrement = millis();
 
@@ -326,7 +326,7 @@ bool incrementerProduction() {
       if (termine) {
         Serial.println("🎉 PRODUCTION TERMINÉE!");
         productionEnCours = false;
-        
+
         // Animation de succès
         for (int i = 0; i < 3; i++) {
           setLED(LOW, LOW, HIGH);
@@ -334,7 +334,7 @@ bool incrementerProduction() {
           setLED(LOW, LOW, LOW);
           delay(150);
         }
-        
+
         // Rafraîchir l'état
         mettreAJourEtatDepuisAPI();
         return true;
@@ -360,12 +360,12 @@ bool decrementerProduction() {
     deserializeJson(doc, response);
     int nouveauCompteur = doc["compteur"] | 0;
     compteurLocal = nouveauCompteur;
-    
+
     Serial.print("➖ Décrémentation: ");
     Serial.print(compteurLocal);
     Serial.print(" / ");
     Serial.println(quantiteMax);
-    
+
     return true;
   }
 
@@ -380,7 +380,7 @@ void gererPedale() {
   if (!productionEnCours) {
     // Démarrer nouvelle production
     Serial.println("🚀 Démarrage d'une nouvelle production...");
-    
+
     // Feedback visuel: clignotement rapide
     setLED(LOW, HIGH, LOW);
     delay(100);
@@ -436,7 +436,7 @@ void gererAnnulation() {
     }
   } else {
     Serial.println("⚠️ Aucune production en cours - Annulation ignorée");
-    
+
     // Feedback: clignotement rapide orange pour indiquer erreur
     for (int i = 0; i < 2; i++) {
       setLED(LOW, HIGH, LOW);
@@ -453,10 +453,10 @@ void verifierTimeout() {
   if (productionEnCours && (millis() - dernierIncrement > TIMEOUT_PRODUCTION)) {
     Serial.println("\n⚠️ TIMEOUT: Aucune activité depuis 5 minutes!");
     Serial.println("🔄 Réinitialisation de l'état...");
-    
+
     productionEnCours = false;
     mettreAJourEtatDepuisAPI();
-    
+
     // Alerte visuelle: clignotement rouge
     for (int i = 0; i < 5; i++) {
       setLED(HIGH, LOW, LOW);
@@ -508,7 +508,7 @@ void loop() {
       }
       compteurAffichage = 0;
     }
-    
+
     mettreAJourEtatDepuisAPI();
     lastLEDUpdate = millis();
   }
