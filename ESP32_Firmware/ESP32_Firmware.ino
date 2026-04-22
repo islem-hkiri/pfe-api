@@ -13,7 +13,7 @@ const char* password = "chaima123"; [cite: 2]
 
 // ================= CONFIGURATION RENDER =================
 // ⚠️ REMPLACE PAR TON LIEN RENDER SANS "https://"
-const char* serverHost = "TON_APPLICATION.onrender.com"; 
+const char* serverHost = "pfe-api-bwtn.onrender.com"; 
 const int serverPort = 443; // Port standard pour HTTPS
 
 // ================= PINS =================
