@@ -86,9 +86,9 @@ def init_db():
                                  (ref, str(row.iloc[1]).strip()))
             except:
                 continue
-        print("Dispatching OK")
+        print("✅ Dispatching OK")
     except Exception as e:
-        print(f"Erreur Dispatching: {e}")
+        print(f"❌ Erreur Dispatching: {e}")
 
     # Import BESOIN
     try:
@@ -114,11 +114,11 @@ def init_db():
                                     VALUES (?, 'Reference_Cable', 0)
                                 """, (val_ref,))
                                 count_log += 1
-            print(f"Logistique OK : {count_log} references lues dans Fiat.")
+            print(f"✅ Logistique OK : {count_log} references lues")
         else:
-            print("Onglet 'BESOIN' introuvable.")
+            print("⚠️ Onglet 'BESOIN' introuvable.")
     except Exception as e:
-        print(f"Erreur Logistique : {e}")
+        print(f"❌ Erreur Logistique : {e}")
 
     # Import PDB
     try:
@@ -136,13 +136,13 @@ def init_db():
                     pd.to_numeric(row.iloc[6], errors='coerce'), 
                     ref_p
                 ))
-        print("PDB OK")
+        print("✅ PDB OK")
     except Exception as e:
-        print(f"Erreur PDB: {e}")
+        print(f"❌ Erreur PDB: {e}")
 
     conn.commit()
     conn.close()
-    print("Database terminee !")
+    print("✅ Base de données initialisée avec succès!")
 
 if __name__ == "__main__":
     init_db()
