@@ -1,164 +1,218 @@
-/* ESP32 Firmware - VERSION RENDER (HTTPS)
-   Communication avec API Flask hébergée sur Render
-*/
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <WiFiClientSecure.h> // ⚠️ Nouveau pour le HTTPS
+#include <WiFiClientSecure.h>
 
-// ================= CONFIGURATION WIFI =================
-const char* ssid = "Infinix HOT 30"; [cite: 1]
-const char* password = "chaima123"; [cite: 2]
+// ================= WIFI =================
+const char* ssid = "Infinix HOT 30";
+const char* password = "chaima123";
 
-// ================= CONFIGURATION RENDER =================
-// ⚠️ REMPLACE PAR TON LIEN RENDER SANS "https://"
-const char* serverHost = "pfe-api-bwtn.onrender.com"; 
-const int serverPort = 443; // Port standard pour HTTPS
+// ================= SERVER =================
+const char* serverHost = "pfe-api-uju4.onrender.com";
+const int serverPort = 443;
 
 // ================= PINS =================
-const int PIN_LIMIT_SWITCH = 32; [cite: 7]
-const int PIN_CANCEL_BUTTON = 12; [cite: 7]
-const int PIN_LED_ROUGE = 14; [cite: 8]
-const int PIN_LED_ORANGE = 27; [cite: 8]
-const int PIN_LED_VERTE = 26; [cite: 8]
+const int PIN_LIMIT_SWITCH = 32;
+const int PIN_CANCEL_BUTTON = 12;
+const int PIN_LED_ROUGE = 14;
+const int PIN_LED_ORANGE = 27;
+const int PIN_LED_VERTE = 26;
 
 // ================= VARIABLES =================
-String currentShift = "B"; [cite: 9]
-bool productionEnCours = false; [cite: 10]
-int compteurLocal = 0; [cite: 10]
-int quantiteMax = 0; [cite: 10]
-int demandeId = 0; [cite: 10]
-int erreurConsecutive = 0; [cite: 11]
-const int MAX_ERREURS = 5; [cite: 11]
+String currentShift = "B";
+bool productionEnCours = false;
+int compteurLocal = 0;
+int quantiteMax = 0;
+int demandeId = 0;
 
-unsigned long lastDebounceTime = 0; [cite: 12]
-const unsigned long debounceDelay = 100; [cite: 12]
-bool lastLimitState = HIGH; [cite: 12]
-bool lastCancelState = HIGH; [cite: 12]
+unsigned long lastDebounceTime = 0;
+const unsigned long debounceDelay = 100;
 
-unsigned long lastLEDUpdate = 0; [cite: 13]
-const unsigned long LED_UPDATE_INTERVAL = 10000; // ⚠️ Augmenté à 10s pour Render (économie de ressources)
+bool lastLimitState = HIGH;
+bool lastCancelState = HIGH;
 
-unsigned long dernierIncrement = 0; [cite: 14]
-const unsigned long TIMEOUT_PRODUCTION = 300000; [cite: 14]
+unsigned long lastLEDUpdate = 0;
+const unsigned long LED_UPDATE_INTERVAL = 10000;
 
 // ================= SETUP =================
 void setup() {
   Serial.begin(115200);
-  pinMode(PIN_LIMIT_SWITCH, INPUT_PULLUP); [cite: 16]
-  pinMode(PIN_CANCEL_BUTTON, INPUT_PULLUP); [cite: 16]
-  pinMode(PIN_LED_ROUGE, OUTPUT); [cite: 16]
-  pinMode(PIN_LED_ORANGE, OUTPUT); [cite: 16]
-  pinMode(PIN_LED_VERTE, OUTPUT); [cite: 16]
-  
-  setLED(LOW, LOW, LOW); [cite: 16]
 
-  WiFi.begin(ssid, password); [cite: 17, 18]
+  pinMode(PIN_LIMIT_SWITCH, INPUT_PULLUP);
+  pinMode(PIN_CANCEL_BUTTON, INPUT_PULLUP);
+  pinMode(PIN_LED_ROUGE, OUTPUT);
+  pinMode(PIN_LED_ORANGE, OUTPUT);
+  pinMode(PIN_LED_VERTE, OUTPUT);
+
+  setLED(LOW, LOW, LOW);
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connexion WiFi");
+
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print("."); [cite: 18]
+    Serial.print(".");
   }
-  Serial.println("\n✅ WiFi Connecté!"); [cite: 19]
 
-  mettreAJourEtatDepuisAPI(); [cite: 21]
+  Serial.println("\nWiFi connecté !");
+  mettreAJourEtatDepuisAPI();
 }
 
-// ================= LED CONTROL =================
+// ================= LED =================
 void setLED(bool rouge, bool orange, bool verte) {
-  digitalWrite(PIN_LED_ROUGE, rouge ? HIGH : LOW); [cite: 23]
-  digitalWrite(PIN_LED_ORANGE, orange ? HIGH : LOW); [cite: 23]
-  digitalWrite(PIN_LED_VERTE, verte ? HIGH : LOW); [cite: 24]
+  digitalWrite(PIN_LED_ROUGE, rouge);
+  digitalWrite(PIN_LED_ORANGE, orange);
+  digitalWrite(PIN_LED_VERTE, verte);
 }
 
-// ================= APPEL API (HTTPS) =================
+// ================= API HTTPS =================
 int appelAPI(String endpoint, String method, String body, String &response) {
   if (WiFi.status() != WL_CONNECTED) {
-    WiFi.reconnect(); [cite: 28]
+    WiFi.reconnect();
     return -1;
   }
 
   WiFiClientSecure *client = new WiFiClientSecure;
-  if(client) {
-    // ⚠️ On ignore la vérification du certificat pour simplifier (Insecure)
-    client->setInsecure(); 
-    
-    HTTPClient http;
-    String url = "https://" + String(serverHost) + endpoint; [cite: 29]
-    
-    http.begin(*client, url);
-    http.addHeader("Content-Type", "application/json"); [cite: 30]
 
-    int httpCode;
-    if (method == "GET") httpCode = http.GET(); [cite: 31]
-    else httpCode = http.POST(body); [cite: 32]
+  if (!client) return -1;
 
-    if (httpCode > 0) {
-      response = http.getString(); [cite: 33]
-      erreurConsecutive = 0; [cite: 36]
-    } else {
-      Serial.printf("❌ Erreur HTTPS: %s\n", http.errorToString(httpCode).c_str());
-      erreurConsecutive++; [cite: 37]
-    }
+  client->setInsecure(); // ignore SSL
 
-    http.end();
-    delete client;
-    return httpCode; [cite: 38]
+  HTTPClient http;
+  String url = "https://" + String(serverHost) + endpoint;
+
+  http.begin(*client, url);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpCode;
+
+  if (method == "GET") {
+    httpCode = http.GET();
+  } else {
+    httpCode = http.POST(body);
   }
-  return -1;
+
+  if (httpCode > 0) {
+    response = http.getString();
+  } else {
+    Serial.println("Erreur HTTP");
+  }
+
+  http.end();
+  delete client;
+
+  return httpCode;
 }
 
-// ================= REST LOGIC (Identique au précédent) =================
-// [Les fonctions mettreAJourEtatDepuisAPI, lancerProduction, incrementerProduction, 
-//  decrementerProduction, gererPedale, gererAnnulation restent les mêmes logic]
-
+// ================= GET ETAT =================
 void mettreAJourEtatDepuisAPI() {
-  String endpoint = "/api/etat?shift=" + currentShift; [cite: 39]
   String response;
-  int code = appelAPI(endpoint, "GET", "", response); [cite: 40]
+  int code = appelAPI("/api/etat?shift=" + currentShift, "GET", "", response);
 
   if (code == 200) {
-    DynamicJsonDocument doc(512); [cite: 40]
-    deserializeJson(doc, response); [cite: 41]
-    String statut = doc["statut"] | "Libre"; [cite: 41]
-    
+    DynamicJsonDocument doc(512);
+    deserializeJson(doc, response);
+
+    String statut = doc["statut"] | "Libre";
+
     if (statut == "En cours") {
-      productionEnCours = true; [cite: 44]
-      quantiteMax = doc["quantite_requise"] | 0; [cite: 42]
-      setLED(HIGH, LOW, LOW); [cite: 46]
-    } else if (statut == "En attente") {
-      productionEnCours = false; [cite: 47]
-      setLED(LOW, HIGH, LOW); [cite: 47]
-    } else {
-      productionEnCours = false; [cite: 49]
-      setLED(LOW, LOW, HIGH); [cite: 49]
+      productionEnCours = true;
+      quantiteMax = doc["quantite_requise"] | 0;
+      demandeId = doc["id"] | 0;
+      setLED(HIGH, LOW, LOW);
+    }
+    else if (statut == "En attente") {
+      productionEnCours = false;
+      setLED(LOW, HIGH, LOW);
+    }
+    else {
+      productionEnCours = false;
+      setLED(LOW, LOW, HIGH);
     }
   }
 }
 
-// ... (Gardez les fonctions incrementer/lancer/gererPedale comme dans votre code source)
+// ================= START =================
+void lancerProduction() {
+  String response;
+  int code = appelAPI("/api/start", "POST", "{}", response);
 
+  if (code == 200) {
+    Serial.println("Production lancée");
+    productionEnCours = true;
+    compteurLocal = 0;
+  }
+}
+
+// ================= INCREMENT =================
+void incrementerProduction() {
+  DynamicJsonDocument doc(256);
+  doc["id"] = demandeId;
+  doc["quantite"] = compteurLocal + 1;
+
+  String body;
+  serializeJson(doc, body);
+
+  String response;
+  int code = appelAPI("/api/increment", "POST", body, response);
+
+  if (code == 200) {
+    compteurLocal++;
+    Serial.println("Increment OK");
+  }
+}
+
+// ================= CANCEL =================
+void gererAnnulation() {
+  String response;
+  int code = appelAPI("/api/cancel", "POST", "{}", response);
+
+  if (code == 200) {
+    Serial.println("Production annulée");
+    productionEnCours = false;
+    compteurLocal = 0;
+    setLED(LOW, LOW, HIGH);
+  }
+}
+
+// ================= PEDALE =================
+void gererPedale() {
+  if (!productionEnCours) {
+    lancerProduction();
+  } else {
+    if (compteurLocal < quantiteMax) {
+      incrementerProduction();
+    } else {
+      Serial.println("Quantité atteinte");
+    }
+  }
+}
+
+// ================= LOOP =================
 void loop() {
-  bool limitState = digitalRead(PIN_LIMIT_SWITCH); [cite: 97]
-  bool cancelState = digitalRead(PIN_CANCEL_BUTTON); [cite: 97]
+  bool limitState = digitalRead(PIN_LIMIT_SWITCH);
+  bool cancelState = digitalRead(PIN_CANCEL_BUTTON);
 
   if ((millis() - lastDebounceTime) > debounceDelay) {
+
     if (lastLimitState == HIGH && limitState == LOW) {
-      gererPedale(); [cite: 98]
+      gererPedale();
       lastDebounceTime = millis();
     }
+
     if (lastCancelState == HIGH && cancelState == LOW) {
-      gererAnnulation(); [cite: 99]
+      gererAnnulation();
       lastDebounceTime = millis();
     }
   }
 
   lastLimitState = limitState;
-  lastCancelState = cancelState; [cite: 100]
+  lastCancelState = cancelState;
 
   if (millis() - lastLEDUpdate > LED_UPDATE_INTERVAL) {
-    mettreAJourEtatDepuisAPI(); [cite: 105]
+    mettreAJourEtatDepuisAPI();
     lastLEDUpdate = millis();
   }
+
   delay(50);
 }
