@@ -20,7 +20,7 @@ String server = "https://pfe-api-uju4.onrender.com";
 #define BTN_CANCEL 12
 
 // VARIABLES
-String shift = "A";
+String shift = "B";
 bool lastSwitchState = HIGH;
 bool lastCancelState = HIGH;
 
