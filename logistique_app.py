@@ -153,8 +153,13 @@ try:
     query_suivi = """
     SELECT reference, quantite, urgence, statut, operateur_id
     FROM Demandes
-    WHERE statut IN ('🟠En attente', '🟢En cours')
-    ORDER BY CASE WHEN statut = '🟢En cours' THEN 1 ELSE 2 END, id DESC
+    WHERE statut LIKE '%En attente%' OR statut LIKE '%En cours%'
+    ORDER BY 
+        CASE 
+            WHEN statut LIKE '%En cours%' THEN 1 
+            ELSE 2 
+        END, 
+        id DESC
     """
     encours_data = conn.execute(query_suivi).fetchall()
 

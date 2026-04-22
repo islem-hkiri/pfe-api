@@ -119,60 +119,63 @@ try:
 
     if tasks:
         for task in tasks:
-            id_d, fam, mod, qte, stat, press, temps, amp, date_b = task
+        id_d, fam, mod, qte, stat, press, temps, amp, date_b = task
+        
+        # Afficher un indicateur de statut avant l'expander
+        if "En attente" in stat:
+            st.markdown(f"🟠 **EN ATTENTE** - {mod}")
+        
+        with st.expander(f"{mod} | {fam} | Qte {qte} | Date besoin: {date_b} (ID: {id_d})"):
+            cols = st.columns([1, 1, 2])
             
-            # Afficher la date dans le titre de l'expander
-            with st.expander(f"{mod} | {fam} | Qte {qte} | Date besoin: {date_b} (ID: {id_d})"):
-                cols = st.columns([1, 1, 2])
-                
-                with cols[0]:
-                    # Bouton Lancer production 
-                    if stat == 'En cours':
-                        st.button(
-                            "Production en cours ", 
-                            key=f"start_prod_{id_d}_{shift}",
-                            disabled=True
-                        )
-                    else:
-                        if st.button("Lancer production", key=f"start_prod_{id_d}_{shift}"):
-                            # Mettre à jour le statut
-                            conn.execute("""
-                                UPDATE Demandes
-                                SET statut = 'En cours',
-                                    debut_production = datetime('now'),
-                                    operateur_id = ?
-                                WHERE id = ?
-                            """, (id_op_saisie, id_d))
-                            conn.commit()
-                            # Afficher les paramètres de soudure après le lancement
-                            st.success(f"Production lancee pour {mod}")
-                            st.info(f"Parametres soudure - Pression: {press} bar, Temps: {temps} s, Amplitude: {amp} %")
-                            st.rerun()
-                
-                with cols[1]:
-                    if st.button("Terminer", key=f"end_{id_d}"):
-                        qte_a_ajouter = qte
+            with cols[0]:
+                if stat == '🟢En cours':
+                    st.button("Production en cours", key=f"start_prod_{id_d}_{shift}", disabled=True)
+                else:
+                    if st.button("Lancer production", key=f"start_prod_{id_d}_{shift}"):
                         conn.execute("""
-                            UPDATE Stock 
-                            SET quantite = quantite + ? 
-                            WHERE reference = (SELECT reference FROM Demandes WHERE id=?)
-                        """, (qte_a_ajouter, id_d))
-                        conn.execute("""
-                            UPDATE Demandes 
-                            SET statut='Termine', fin_production=datetime('now') 
-                            WHERE id=?
-                        """, (id_d,))
+                            UPDATE Demandes
+                            SET statut = '🟢En cours',
+                                debut_production = datetime('now'),
+                                operateur_id = ?
+                            WHERE id = ?
+                        """, (id_op_saisie, id_d))
                         conn.commit()
+                        st.success(f"Production lancée pour {mod}")
                         st.rerun()
-                
-                with cols[2]:
+            
+            with cols[1]:
+                if st.button("Terminer", key=f"end_{id_d}"):
+                    qte_a_ajouter = qte
+                    conn.execute("""
+                        UPDATE Stock 
+                        SET quantite = quantite + ? 
+                        WHERE reference = (SELECT reference FROM Demandes WHERE id=?)
+                    """, (qte_a_ajouter, id_d))
+                    conn.execute("""
+                        UPDATE Demandes 
+                        SET statut='Terminé', fin_production=datetime('now') 
+                        WHERE id=?
+                    """, (id_d,))
+                    conn.commit()
+                    st.rerun()
+            
+            with cols[2]:
+                # 👇👇👇 هذي هي الجزء المهم اللي تبدل فيه 👇👇👇
+                if "En attente" in stat:
+                    st.warning(" STATUT:🟠EN ATTENTE")
+                elif "En cours" in stat:
+                    st.error(" STATUT:🟢EN COURS")
+                else:
                     st.write(f"**Statut:** {stat}")
-                    st.markdown("""
-                    **Parametres soudure automatiques:**
-                    - **Pression:** {} bar
-                    - **Temps:** {} s
-                    - **Amplitude:** {} %
-                    """.format(press if press else '~', temps if temps else '~', amp if amp else '~'))
+                # 👆👆👆 هذي هي الجزء المهم اللي تبدل فيه 👆👆👆
+                
+                st.markdown("""
+                **Paramètres soudure automatiques:**
+                - **Pression:** {} bar
+                - **Temps:** {} s
+                - **Amplitude:** {} %
+                """.format(press if press else '~', temps if temps else '~', amp if amp else '~'))
        
 except Exception as e:
     st.error(f"Erreur lors de la recuperation des taches: {str(e)}")

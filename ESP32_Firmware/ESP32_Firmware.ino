@@ -76,10 +76,10 @@ void loop() {
       if (statut == "Libre") {
         digitalWrite(LED_GREEN, HIGH);
       }
-      else if (statut == "En attente") {
+      else if (statut == "🟠En attente") {
         digitalWrite(LED_ORANGE, HIGH);
       }
-      else if (statut == "En cours") {
+      else if (statut == "🟢En cours") {
         digitalWrite(LED_RED, HIGH);
       }
 

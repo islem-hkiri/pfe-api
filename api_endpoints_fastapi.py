@@ -35,7 +35,7 @@ def get_etat(shift: str = "A"):
         cursor.execute("""
             SELECT id, statut, quantite
             FROM Demandes
-            WHERE shift = ? AND (statut = '🟢 En cours' OR statut = 'En cours')
+            WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
             LIMIT 1
         """, (shift,))
         en_cours = cursor.fetchone()
@@ -43,7 +43,7 @@ def get_etat(shift: str = "A"):
         # 2. Vérifier demande en attente (avec ou sans emoji)
         cursor.execute("""
             SELECT id FROM Demandes
-            WHERE shift = ? AND (statut = '🟠 En attente' OR statut = 'En attente')
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
             LIMIT 1
         """, (shift,))
         attente = cursor.fetchone()
@@ -53,13 +53,13 @@ def get_etat(shift: str = "A"):
         # 🔥 LOGIC LED (priorité: En cours > En attente > Libre)
         if en_cours:
             return {
-                "statut": "En cours",
+                "statut": "🟢En cours",
                 "machine_disponible": False
             }
 
         if attente:
             return {
-                "statut": "En attente",
+                "statut": "🟠En attente",
                 "machine_disponible": False  # ⚠️ Changement important: False car il y a du travail
             }
 
@@ -81,7 +81,7 @@ def increment(req: ShiftRequest):
     cursor.execute("""
         SELECT id, quantite, reference 
         FROM Demandes 
-        WHERE shift = ? AND (statut = '🟢 En cours' OR statut = 'En cours')
+        WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
         LIMIT 1
     """, (req.shift,))
     
@@ -92,7 +92,7 @@ def increment(req: ShiftRequest):
         cursor.execute("""
             SELECT id, quantite, reference 
             FROM Demandes 
-            WHERE shift = ? AND (statut = '🟠 En attente' OR statut = 'En attente')
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
             ORDER BY id ASC LIMIT 1
         """, (req.shift,))
         
@@ -107,7 +107,7 @@ def increment(req: ShiftRequest):
         # Démarrer la production
         cursor.execute("""
             UPDATE Demandes 
-            SET statut = '🟢 En cours', debut_production = datetime('now') 
+            SET statut = '🟢En cours', debut_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
 
@@ -179,7 +179,7 @@ def decrement(req: ShiftRequest):
     # Vérifier si une production est en cours
     cursor.execute("""
         SELECT id FROM Demandes 
-        WHERE shift = ? AND (statut = '🟢 En cours' OR statut = 'En cours')
+        WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
         LIMIT 1
     """, (req.shift,))
     
