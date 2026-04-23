@@ -13,47 +13,74 @@ def start_api():
     """دالة باش تطلق API"""
     global api_process
     
-    # نتأكد من أن API مش شغالة
+    # نتأكد إذا API شغالة
     try:
         requests.get("http://localhost:8000/")
-        print("✅ API شغالة قبل")
+        print("✅ API déjà en marche")
         return True
     except:
         pass
     
-    print("🚀 نطلق API...")
+    print("🚀 تشغيل API...")
     
-    # مسار API
     api_file = "api_local_websocket.py"
     
-    if sys.platform == "win32":
-        # تخفي API (ما تظهرش نافذة)
-        api_process = subprocess.Popen(
-            ["python", api_file],
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-    else:
-        api_process = subprocess.Popen(["python", api_file])
-    
-    # نستنو 3 ثواني باش API تطلق
-    time.sleep(3)
-    print(f"✅ API طلقت! (PID: {api_process.pid})")
-    return True
+    # نتأكد من وجود الفايل
+    if not os.path.exists(api_file):
+        print(f"❌ الملف {api_file} غير موجود!")
+        return False
+
+    try:
+        if sys.platform == "win32":
+            api_process = subprocess.Popen(
+                ["python", api_file],
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+        else:
+            api_process = subprocess.Popen(["python", api_file])
+        
+        # نستناو باش API تقوم
+        time.sleep(3)
+
+        # نتحقق مرة أخرى
+        try:
+            requests.get("http://localhost:8000/")
+            print(f"✅ API تم تشغيلها (PID: {api_process.pid})")
+            return True
+        except:
+            print("❌ API ما قامتش كما يلزم")
+            return False
+
+    except Exception as e:
+        print(f"❌ خطأ أثناء تشغيل API: {e}")
+        return False
+
 
 def stop_api():
     """دالة باش تقفل API"""
     global api_process
     if api_process:
-        print("🛑 نقفل API...")
-        if sys.platform == "win32":
-            subprocess.run(["taskkill", "/F", "/PID", str(api_process.pid)])
-        else:
-            api_process.terminate()
-        print("✅ API تقفلت")
+        print("🛑 إيقاف API...")
+        try:
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/PID", str(api_process.pid)])
+            else:
+                api_process.terminate()
+            print("✅ API توقفت")
+        except:
+            pass
 
-# لما تسكر التطبيق، API تقفل وحدها
+
+# لما تسكر التطبيق
 atexit.register(stop_api)
 
+# تشغيل API مرة واحدة فقط
+if "api_started" not in st.session_state:
+    start_api()
+    st.session_state.api_started = True
+
+
+# ========== AUTH ==========
 if "role" not in st.session_state:
     st.session_state.role = None
 
@@ -72,6 +99,7 @@ def login():
         else:
             st.error("Mot de passe incorrect")
 
+# ========== MAIN ==========
 if st.session_state.role is None:
     login()
 else:
@@ -82,6 +110,7 @@ else:
     if st.session_state.role == "Logistique":
         st.sidebar.success("Connecté : Logistique")
         exec(open("logistique_app.py").read())
+
     elif st.session_state.role == "Opérateur":
         st.sidebar.info("Connecté : Opérateur")
         exec(open("operateur_app.py").read())
