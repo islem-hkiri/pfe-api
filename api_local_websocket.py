@@ -4,7 +4,8 @@ from pydantic import BaseModel
 import sqlite3
 import os
 import asyncio
-from typing import Dict, Set
+from typing import Dict
+import threading
 
 app = FastAPI()
 
@@ -22,17 +23,17 @@ DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 # ========== GESTION WEBSOCKET ==========
 class ConnectionManager:
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}  # {shift: websocket}
-        self.last_status: Dict[str, str] = {}  # Dernier statut connu
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.last_status: Dict[str, str] = {}
     
     async def connect(self, websocket: WebSocket, shift: str):
         await websocket.accept()
         self.active_connections[shift] = websocket
-        print(f"✅ Carte {shift} connectée via WebSocket")
+        print(f"✅ Carte {shift} connectée")
         
         # Envoyer le statut actuel immédiatement
-        if shift in self.last_status:
-            await websocket.send_text(self.last_status[shift])
+        await self.send_status(shift)
+        return True
     
     def disconnect(self, shift: str):
         if shift in self.active_connections:
@@ -43,44 +44,81 @@ class ConnectionManager:
         if shift in self.active_connections:
             try:
                 await self.active_connections[shift].send_text(message)
+                print(f"📤 Envoyé à {shift}: {message}")
                 return True
             except:
                 self.disconnect(shift)
                 return False
         return False
     
-    async def broadcast_status(self, shift: str, status: str):
-        """Envoyer le statut à une carte spécifique"""
-        self.last_status[shift] = status
-        await self.send_to_card(shift, status)
+    async def send_status(self, shift: str):
+        """Récupère et envoie le statut actuel à une carte"""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT id, statut FROM Demandes
+                WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
+                LIMIT 1
+            """, (shift,))
+            en_cours = cursor.fetchone()
+            
+            cursor.execute("""
+                SELECT id FROM Demandes
+                WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+                LIMIT 1
+            """, (shift,))
+            attente = cursor.fetchone()
+            
+            conn.close()
+            
+            if en_cours:
+                status = "🟢En cours"
+            elif attente:
+                status = "🟠En attente"
+            else:
+                status = "Libre"
+            
+            self.last_status[shift] = status
+            await self.send_to_card(shift, status)
+            print(f"📊 Statut envoyé à {shift}: {status}")
+            
+        except Exception as e:
+            print(f"❌ Erreur send_status: {e}")
 
 manager = ConnectionManager()
 
-# ========== CLASSES PYDANTIC ==========
 class ShiftRequest(BaseModel):
     shift: str
 
-# ========== ENDPOINTS WEBSOCKET ==========
+# ========== WEBSOCKET ENDPOINT ==========
 @app.websocket("/ws/{shift}")
 async def websocket_endpoint(websocket: WebSocket, shift: str):
     await manager.connect(websocket, shift)
     try:
         while True:
-            # Recevoir des messages de la carte ESP32
             data = await websocket.receive_text()
-            print(f"📨 Reçu de carte {shift}: {data}")
+            print(f"📨 Reçu de {shift}: {data}")
             
-            # Analyser le message (optionnel)
+            # Traiter les commandes de l'ESP32
             if data == "ping":
                 await websocket.send_text("pong")
-            elif data.startswith("status:"):
-                # Exemple: "status:1,200" (compteur, max)
-                await websocket.send_text(f"ACK: {data}")
+            elif "increment" in data:
+                # Appeler increment
+                req = ShiftRequest(shift=shift)
+                result = increment(req)
+                # Envoyer le nouveau statut
+                await manager.send_status(shift)
+            elif "decrement" in data:
+                req = ShiftRequest(shift=shift)
+                result = decrement(req)
+                await manager.send_status(shift)
                 
     except WebSocketDisconnect:
         manager.disconnect(shift)
 
-# ========== ENDPOINTS API EXISTANTS ==========
+# ========== API ENDPOINTS ==========
 @app.get("/")
 def root():
     return {"message": "API PFE Local avec WebSocket"}
@@ -90,7 +128,7 @@ def get_etat(shift: str = "A"):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-
+        
         cursor.execute("""
             SELECT id, statut, quantite
             FROM Demandes
@@ -98,16 +136,16 @@ def get_etat(shift: str = "A"):
             LIMIT 1
         """, (shift,))
         en_cours = cursor.fetchone()
-
+        
         cursor.execute("""
             SELECT id FROM Demandes
             WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
             LIMIT 1
         """, (shift,))
         attente = cursor.fetchone()
-
+        
         conn.close()
-
+        
         if en_cours:
             status_data = {"statut": "🟢En cours", "machine_disponible": False}
         elif attente:
@@ -115,20 +153,21 @@ def get_etat(shift: str = "A"):
         else:
             status_data = {"statut": "Libre", "machine_disponible": True}
         
-        # 🔥 Envoyer via WebSocket si la carte est connectée
-        import asyncio
-        asyncio.create_task(manager.broadcast_status(shift, status_data["statut"]))
+        # Envoyer via WebSocket
+        asyncio.create_task(manager.send_status(shift))
         
         return status_data
-
+        
     except Exception as e:
         return {"error": str(e)}
 
 @app.post("/api/increment")
 def increment(req: ShiftRequest):
+    print(f"➕ INCREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
+    
+    # Vérifier production en cours
     cursor.execute("""
         SELECT id, quantite, reference 
         FROM Demandes 
@@ -137,7 +176,8 @@ def increment(req: ShiftRequest):
     """, (req.shift,))
     
     demande = cursor.fetchone()
-
+    
+    # Si pas de production, démarrer la première en attente
     if not demande:
         cursor.execute("""
             SELECT id, quantite, reference 
@@ -147,19 +187,21 @@ def increment(req: ShiftRequest):
         """, (req.shift,))
         
         demande = cursor.fetchone()
-
+        
         if not demande:
             conn.close()
             return {"success": False, "message": "Aucune demande en attente"}
-
+        
         demande_id, qte_max, ref = demande
-
+        
+        # Démarrer la production
         cursor.execute("""
             UPDATE Demandes 
             SET statut = '🟢En cours', debut_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
-
+        
+        # Initialiser compteur
         cursor.execute("""
             INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
             VALUES (?, 0, ?, datetime('now'))
@@ -168,52 +210,53 @@ def increment(req: ShiftRequest):
         """, (req.shift, demande_id, demande_id))
         
         compteur = 1
-
+        print(f"🚀 Production démarrée: {ref} - Quantité: {qte_max}")
+        
     else:
         demande_id, qte_max, ref = demande
         cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
         row = cursor.fetchone()
         compteur = row[0] + 1 if row else 1
-
+        print(f"📊 Compteur: {compteur}/{qte_max}")
+    
+    # Mettre à jour compteur
     cursor.execute("""
         INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
         VALUES (?, ?, ?, datetime('now'))
         ON CONFLICT(shift) DO UPDATE 
         SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')
     """, (req.shift, compteur, demande_id, compteur, demande_id))
-
+    
     termine = (compteur >= qte_max)
-
+    
+    # Auto-terminer
     if termine:
         cursor.execute("""
             UPDATE Demandes 
             SET statut = '✅ Terminé', fin_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
-
+        
         cursor.execute("""
             UPDATE Stock 
             SET quantite = quantite + ? 
             WHERE reference = ?
         """, (qte_max, ref))
-
+        
         cursor.execute("""
             UPDATE EtatMachine 
             SET compteur_actuel = 0, demande_id = NULL
             WHERE shift = ?
         """, (req.shift,))
-
+        
+        print(f"✅ Production terminée! {qte_max} unités de {ref}")
+    
     conn.commit()
     conn.close()
-
-    # 🔥 Envoyer la mise à jour via WebSocket
-    if termine:
-        import asyncio
-        asyncio.create_task(manager.broadcast_status(req.shift, "Libre"))
-    else:
-        import asyncio
-        asyncio.create_task(manager.broadcast_status(req.shift, "🟢En cours"))
-
+    
+    # Envoyer le nouveau statut via WebSocket (IMPORTANT!)
+    asyncio.create_task(manager.send_status(req.shift))
+    
     return {
         "success": True,
         "compteur": compteur,
@@ -223,9 +266,10 @@ def increment(req: ShiftRequest):
 
 @app.post("/api/decrement")
 def decrement(req: ShiftRequest):
+    print(f"➖ DECREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
+    
     cursor.execute("""
         SELECT id FROM Demandes 
         WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
@@ -237,21 +281,23 @@ def decrement(req: ShiftRequest):
     if not en_cours:
         conn.close()
         return {"success": False, "message": "Aucune production en cours"}
-
+    
     cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
     row = cursor.fetchone()
-
+    
     if row and row[0] > 0:
         nouveau = row[0] - 1
-
         cursor.execute("""
             UPDATE EtatMachine 
             SET compteur_actuel = ?, last_update = datetime('now') 
             WHERE shift = ?
         """, (nouveau, req.shift))
-
         conn.commit()
         conn.close()
+        
+        # Envoyer le nouveau statut
+        asyncio.create_task(manager.send_status(req.shift))
+        
         return {"success": True, "compteur": nouveau}
     
     conn.close()
@@ -259,7 +305,6 @@ def decrement(req: ShiftRequest):
 
 @app.get("/api/debug")
 def debug():
-    import sqlite3
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, shift, statut, quantite FROM Demandes LIMIT 10")
@@ -269,6 +314,9 @@ def debug():
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Serveur démarré sur http://localhost:8000")
-    print("📡 WebSocket disponible sur ws://localhost:8000/ws/{shift}")
+    print("="*50)
+    print("🚀 SERVEUR DÉMARRÉ")
+    print(f"📡 HTTP: http://localhost:8000")
+    print(f"🔌 WebSocket: ws://localhost:8000/ws/{{shift}}")
+    print("="*50)
     uvicorn.run(app, host="0.0.0.0", port=8000)
