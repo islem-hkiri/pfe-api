@@ -205,6 +205,30 @@ def decrement(req: ShiftRequest):
         conn.close()
 
         return {"success": True, "compteur": nouveau}
+@app.get("/api/debug")
+def debug():
+    import sqlite3
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, shift, statut, quantite FROM Demandes LIMIT 10")
+    data = cursor.fetchall()
+    conn.close()
+    return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "qte": d[3]} for d in data]}
+
+@app.get("/api/add_direct")
+def add_direct():
+    import sqlite3
+    from datetime import datetime
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
+        VALUES ('TEST_001', 5, date('now'), 'A', 'En attente', 'Normal', datetime('now'))
+    """)
+    conn.commit()
+    conn.close()
+    return {"message": "Demande ajoutée avec succès! Maintenant teste /api/etat?shift=A"}
+    
 
     conn.close()
     return {"success": False, "message": "Compteur déjà à zéro"}
