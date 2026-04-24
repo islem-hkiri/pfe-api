@@ -221,13 +221,17 @@ def add_direct():
     from datetime import datetime
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
+    # ✅ Correction: badalna 'qte' b ra9m 10
     cursor.execute("""
         INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-        VALUES ('TEST_001', 10 , date('now'), 'A', 'En attente', 'Normal', datetime('now'))
+        VALUES ('TEST_001', 10, date('now'), 'A', 'En attente', 'Normal', datetime('now'))
     """)
+    
     conn.commit()
     conn.close()
-    return {"message": "Demande ajoutée avec succès! Maintenant teste /api/etat?shift=A"}
+    return {"message": "Demande TEST_001 ajoutée avec succès!"}
+    #return {"message": "Demande ajoutée avec succès! Maintenant teste /api/etat?shift=A"}
     
 
     conn.close()
