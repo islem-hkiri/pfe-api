@@ -13,7 +13,7 @@ const int serverPort = 8000;
 #define LED_ORANGE 27
 #define LED_RED 14
 #define LIMIT_SWITCH 32
-#define BTN_CANCEL 12
+#define BTN_CANCEL 34
 
 String shift = "B";
 bool lastSwitchState = HIGH;
