@@ -6,15 +6,9 @@ import os
 import socket
 import time
 import atexit
+import requests  # AJOUTÉ : import manquant
 
 from streamlit_autorefresh import st_autorefresh
-
-# Refresh el page kol 10000ms (10 secondes)
-st_autorefresh(interval=10000, key="datarefresh")
-
-# El code elli ta7tou bech yet3awed automatique kol 10s
-data = requests.get("https://pfe-api-uju4.onrender.com/api/etat?shift=shift").json()
-st.write("Dernière mise à jour :", data)
 
 # ========== AUTO-LANCEMENT API ==========
 api_process = None
@@ -51,7 +45,7 @@ if "api_started" not in st.session_state:
     start_api()
     atexit.register(cleanup_api)
 
-# ========== TON CODE ORIGINAL (GARDE LA SUITE) ==========
+# ========== GESTION DE LA CONNEXION ==========
 if "role" not in st.session_state:
     st.session_state.role = None
 
@@ -84,6 +78,18 @@ else:
             st.session_state.role = None
             st.rerun()
     
+    # ========== AFFICHAGE DES DONNÉES (seulement après connexion) ==========
+    # Refresh el page kol 10 secondes
+    st_autorefresh(interval=10000, key="datarefresh")
+    
+    # Appel API pour récupérer les données
+    try:
+        data = requests.get("https://pfe-api-uju4.onrender.com/api/etat?shift=shift").json()
+        st.write("Dernière mise à jour :", data)
+    except Exception as e:
+        st.error(f"Erreur lors de la récupération des données : {e}")
+    
+    # ========== TON CODE ORIGINAL (GARDE LA SUITE) ==========
     if st.session_state.role == "Logistique":
         exec(open("logistique_app.py").read())
     elif st.session_state.role == "Opérateur":
