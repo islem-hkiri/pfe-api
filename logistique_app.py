@@ -105,9 +105,9 @@ except Exception as e:
     st.sidebar.error(f"Erreur historique: {e}")
 
 # DECONNEXION
-#if st.sidebar.button("Déconnexion", use_container_width=True):
- #   st.session_state.logged_in = False
-  #  st.rerun()
+if st.sidebar.button("Déconnexion", use_container_width=True):
+    st.session_state.logged_in = False
+    st.rerun()
 
 # INTERFACE PRINCIPALE
 st.title(" Demandes (Poste Soudure)")
