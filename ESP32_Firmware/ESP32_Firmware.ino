@@ -12,8 +12,8 @@ const int serverPort = 8000;
 #define LED_GREEN 26
 #define LED_ORANGE 27
 #define LED_RED 14
-#define LIMIT_SWITCH 32      // Bouton incrémentation
-#define BTN_DECR 12      // Bouton décrémentation (optionnel)
+#define BTN_INCR 32      // Bouton incrémentation (pédale)
+#define BTN_DECR 12      // Bouton décrémentation (annulation)
 
 String shift = "B";  // Change A ou B selon ton shift
 
@@ -98,6 +98,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         }
         else if (message == "pong") {
           // Heartbeat reçu, rien à faire
+          Serial.println("💓 Pong reçu");
         }
         else if (message == "ack_incr") {
           Serial.println("✅ Incrémentation confirmée par le serveur");
@@ -167,6 +168,9 @@ void setup() {
   } else {
     Serial.println("\n❌ WiFi non connecté! Vérifie les identifiants");
   }
+  
+  // Initialiser lastStatusRequest
+  lastStatusRequest = millis();
 }
 
 // ========== LOOP ==========
@@ -180,13 +184,13 @@ void loop() {
     Serial.println("💬 Heartbeat envoyé");
   }
   
-  // Demander le statut toutes les 10 secondes (voirie)
+  // Demander le statut toutes les 10 secondes
   if (webSocketConnected && (millis() - lastStatusRequest > 10000)) {
     requestStatus();
     lastStatusRequest = millis();
   }
   
-  // ========== BOUTON INCRÉMENTATION ==========
+  // ========== BOUTON INCRÉMENTATION (Pédale) ==========
   bool incrState = digitalRead(BTN_INCR);
   if (lastIncrState == HIGH && incrState == LOW && webSocketConnected) {
     unsigned long now = millis();
@@ -205,7 +209,7 @@ void loop() {
   }
   lastIncrState = incrState;
   
-  // ========== BOUTON DÉCRÉMENTATION (optionnel) ==========
+  // ========== BOUTON DÉCRÉMENTATION (Annulation) ==========
   bool decrState = digitalRead(BTN_DECR);
   if (lastDecrState == HIGH && decrState == LOW && webSocketConnected) {
     unsigned long now = millis();
