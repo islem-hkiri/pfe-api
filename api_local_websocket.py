@@ -43,28 +43,36 @@ class ConnectionManager:
                 self.disconnect(shift)
                 return False
         return False
+    
+    async def broadcast_to_all(self, message: str):
+        """Diffuse un message à tous les shifts connectés"""
+        for shift in list(self.active_connections.keys()):
+            await self.send_message(shift, message)
 
 manager = ConnectionManager()
 
-# Variable pour stocker la dernière tâche asyncio pour chaque shift
-last_status_tasks = {}
+# Cache du dernier statut pour éviter les appels DB inutiles
+last_status_cache = {"A": None, "B": None}
 
 def get_status_from_db(shift: str):
     """Récupère le statut depuis la base de données (synchrone)"""
+    global last_status_cache
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
+        # Vérifier production en cours
         cursor.execute("""
             SELECT id FROM Demandes
-            WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
+            WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours' OR statut = 'En cours')
             LIMIT 1
         """, (shift,))
         en_cours = cursor.fetchone()
         
+        # Vérifier demande en attente
         cursor.execute("""
             SELECT id FROM Demandes
-            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente' OR statut = 'En attente')
             LIMIT 1
         """, (shift,))
         attente = cursor.fetchone()
@@ -72,11 +80,16 @@ def get_status_from_db(shift: str):
         conn.close()
         
         if en_cours:
-            return "🟢En cours"
+            status = "🟢En cours"
         elif attente:
-            return "🟠En attente"
+            status = "🟠En attente"
         else:
-            return "Libre"
+            status = "Libre"
+        
+        # Mettre en cache
+        last_status_cache[shift] = status
+        return status
+        
     except Exception as e:
         print(f"❌ Erreur DB: {e}")
         return "Libre"
@@ -87,6 +100,11 @@ async def send_status_to_card(shift: str):
     status = get_status_from_db(shift)
     await manager.send_message(shift, status)
     return status
+
+async def broadcast_status_to_all():
+    """Diffuse le statut à tous les shifts connectés"""
+    for shift in manager.active_connections.keys():
+        await send_status_to_card(shift)
 
 class ShiftRequest(BaseModel):
     shift: str
@@ -108,19 +126,26 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
                 await websocket.send_text("pong")
                 print("💓 Pong envoyé")
             
+            elif data == "get_status" or data == "status":
+                # 🔥 NOUVEAU: Demande de statut explicite
+                print(f"📡 Demande de statut de {shift}")
+                await send_status_to_card(shift)
+            
             elif data == "increment":
                 print("➕ Traitement increment...")
-                # Appeler la fonction increment (qui est synchrone)
                 result = increment_sync(ShiftRequest(shift=shift))
                 print(f"Résultat increment: {result}")
                 # Envoyer le nouveau statut
                 await send_status_to_card(shift)
+                # Confirmer au client
+                await manager.send_message(shift, "ack_incr")
             
             elif data == "decrement":
                 print("➖ Traitement decrement...")
                 result = decrement_sync(ShiftRequest(shift=shift))
                 print(f"Résultat decrement: {result}")
                 await send_status_to_card(shift)
+                await manager.send_message(shift, "ack_decr")
             
             else:
                 print(f"📝 Message non reconnu: {data}")
@@ -222,6 +247,9 @@ def increment_sync(req: ShiftRequest):
     conn.commit()
     conn.close()
     
+    # 🔥 Mettre à jour le cache
+    last_status_cache[req.shift] = "🟢En cours" if not termine else "Libre"
+    
     return {
         "success": True,
         "compteur": compteur,
@@ -314,12 +342,47 @@ def add_direct():
     conn.close()
     return {"message": "Demande TEST_001 ajoutée pour shift B! Allez teste la pédale maintenant!"}
 
+# 🔥 NOUVEAU: Endpoint pour forcer l'envoi du statut à tous
+@app.post("/api/broadcast-status")
+async def broadcast_status():
+    """Diffuse le statut actuel à tous les ESP32 connectés"""
+    await broadcast_status_to_all()
+    return {"success": True, "message": "Status broadcast envoyé"}
+
+# 🔥 NOUVEAU: Endpoint pour obtenir le statut sans WebSocket
+@app.get("/api/get-status/{shift}")
+def get_status_http(shift: str):
+    """Obtenir le statut via HTTP (pour debug)"""
+    status = get_status_from_db(shift)
+    return {"shift": shift, "statut": status}
+
+# 🔥 NOUVEAU: Endpoint pour synchroniser la base
+@app.post("/api/sync-db")
+async def sync_database():
+    """Force la synchronisation de la base de données"""
+    try:
+        import database_v2
+        result = database_v2.manual_sync()
+        # Après sync, broadcaster le nouveau statut
+        await broadcast_status_to_all()
+        return result
+    except Exception as e:
+        return {"success": False, "message": f"Erreur sync: {str(e)}"}
+
 if __name__ == "__main__":
     import uvicorn
     print("="*50)
     print("🚀 SERVEUR DÉMARRÉ")
     print(f"📡 HTTP: http://localhost:8000")
     print(f"🔌 WebSocket: ws://localhost:8000/ws/{{shift}}")
+    print("="*50)
+    print("\n💡 Commandes disponibles:")
+    print("   - GET  /api/etat?shift=A")
+    print("   - GET  /api/get-status/A")
+    print("   - POST /api/increment")
+    print("   - POST /api/decrement")
+    print("   - POST /api/broadcast-status")
+    print("   - POST /api/sync-db")
     print("="*50)
     print("\n💡 Pour tester:")
     print("   1. Ouvre http://localhost:8000/api/add_direct")
