@@ -75,6 +75,39 @@ FROM Demandes GROUP BY urgence
 
 if not df_urg.empty:
     st.sidebar.bar_chart(df_urg.set_index("urgence"))
+# Ajouter dans la sidebar, après les KPI et avant l'historique
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔄 Gestion Base de Données")
+
+# Bouton de synchronisation
+if st.sidebar.button("🔄 Synchroniser avec Excel", use_container_width=True):
+    with st.sidebar.status("Synchronisation en cours...", expanded=True) as status:
+        try:
+            import requests
+            response = requests.post("http://localhost:8000/api/sync-db", timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success"):
+                    status.update(label=f"✅ {result.get('message')}", state="complete")
+                    st.sidebar.success(f"✅ {result.get('message')}")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    status.update(label=f"❌ {result.get('message')}", state="error")
+            else:
+                status.update(label="❌ Erreur de connexion à l'API", state="error")
+        except Exception as e:
+            status.update(label=f"❌ Erreur: {str(e)}", state="error")
+
+# Afficher statut
+try:
+    import requests
+    response = requests.get("http://localhost:8000/api/sync-status", timeout=2)
+    if response.status_code == 200:
+        status = response.json()
+        st.sidebar.caption(f"📅 Dernière sync: {status.get('last_sync', 'Jamais')}")
+except:
+    st.sidebar.caption("📅 API non disponible")
 
 # Historique
 st.sidebar.markdown("---")
