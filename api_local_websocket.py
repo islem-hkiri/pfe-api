@@ -225,7 +225,7 @@ def increment_sync(req: ShiftRequest):
     return {
         "success": True,
         "compteur": compteur,
-        "max": Qté,
+        "Qté": Qté,
         "termine": termine
     }
 
@@ -298,7 +298,7 @@ def debug():
     cursor.execute("SELECT id, shift, statut, quantite FROM Demandes LIMIT 10")
     data = cursor.fetchall()
     conn.close()
-    return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "qte": d[3]} for d in data]}
+    return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
 
 @app.get("/api/add_direct")
 def add_direct():

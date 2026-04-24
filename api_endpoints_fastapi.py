@@ -102,7 +102,7 @@ def increment(req: ShiftRequest):
             conn.close()
             return {"success": False, "message": "Aucune demande en attente"}
 
-        demande_id, qte_max, ref = demande
+        demande_id, Qté, ref = demande
 
         # Démarrer la production
         cursor.execute("""
@@ -122,7 +122,7 @@ def increment(req: ShiftRequest):
         compteur = 1  # Premier incrément
 
     else:
-        demande_id, qte_max, ref = demande
+        demande_id, Qté, ref = demande
 
         # Récupérer le compteur actuel
         cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
@@ -137,7 +137,7 @@ def increment(req: ShiftRequest):
         SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')
     """, (req.shift, compteur, demande_id, compteur, demande_id))
 
-    termine = (compteur >= qte_max)
+    termine = (compteur >= Qté)
 
     # 🔥 AUTO TERMINER
     if termine:
@@ -151,7 +151,7 @@ def increment(req: ShiftRequest):
             UPDATE Stock 
             SET quantite = quantite + ? 
             WHERE reference = ?
-        """, (qte_max, ref))
+        """, (Qté, ref))
 
         # Remettre le compteur à 0 pour la prochaine production
         cursor.execute("""
@@ -166,7 +166,7 @@ def increment(req: ShiftRequest):
     return {
         "success": True,
         "compteur": compteur,
-        "max": qte_max,
+        "Qté": Qté,
         "termine": termine
     }
 
@@ -213,7 +213,7 @@ def debug():
     cursor.execute("SELECT id, shift, statut, quantite FROM Demandes LIMIT 10")
     data = cursor.fetchall()
     conn.close()
-    return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "qte": d[3]} for d in data]}
+    return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
 
 @app.get("/api/add_direct")
 def add_direct():
