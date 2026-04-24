@@ -228,46 +228,7 @@ def add_direct():
     conn.commit()
     conn.close()
     return {"message": "Demande ajoutée avec succès! Maintenant teste /api/etat?shift=A"}
-    # Ajouter après @app.get("/api/add_direct") et avant la dernière parenthèse
-
-# 🔹 SYNC DATABASE ENDPOINT
-@app.post("/api/sync-db")
-def sync_database():
-    """Force la synchronisation de la base de données"""
-    try:
-        # Importer database_v2 et lancer sync
-        import database_v2
-        result = database_v2.manual_sync()
-        return result
-    except Exception as e:
-        return {"success": False, "message": f"Erreur sync: {str(e)}"}
-
-@app.get("/api/sync-status")
-def sync_status():
-    """Vérifie le statut de la base de données"""
-    try:
-        import database_v2
-        return database_v2.get_sync_status()
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/api/check-tables")
-def check_tables():
-    """Vérifie si toutes les tables existent"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = [row[0] for row in cursor.fetchall()]
-    conn.close()
     
-    required = ['EtatMachine', 'Pannes', 'Produits', 'Stock', 'Demandes']
-    missing = [t for t in required if t not in tables]
-    
-    return {
-        "tables": tables,
-        "missing": missing,
-        "all_ok": len(missing) == 0
-    }
 
     conn.close()
     return {"success": False, "message": "Compteur déjà à zéro"}
