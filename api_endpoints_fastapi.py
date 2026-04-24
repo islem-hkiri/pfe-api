@@ -223,7 +223,7 @@ def add_direct():
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-        VALUES ('TEST_001', 50, date('now'), 'A', 'En attente', 'Normal', datetime('now'))
+        VALUES ('TEST_001', 10 , date('now'), 'A', 'En attente', 'Normal', datetime('now'))
     """)
     conn.commit()
     conn.close()
