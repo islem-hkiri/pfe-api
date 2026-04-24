@@ -24,23 +24,23 @@ WebSocketsClient webSocket;
 unsigned long lastHeartbeat = 0;
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-  switch(type) {
+  switch (type) {
     case WStype_DISCONNECTED:
       Serial.println("❌ WebSocket déconnecté!");
       webSocketConnected = false;
       break;
-      
+
     case WStype_CONNECTED:
       Serial.println("✅ WebSocket connecté!");
       webSocketConnected = true;
       break;
-      
+
     case WStype_TEXT:
       {
         String message = String((char*)payload);
         Serial.print("📨 Message reçu du serveur: ");
         Serial.println(message);
-        
+
         // 🔥 TRAITER LE STATUT REÇU
         if (message == "Libre") {
           Serial.println("🟢 État: LIBRE - LED VERTE");
@@ -65,7 +65,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         }
       }
       break;
-      
+
     case WStype_ERROR:
       Serial.println("❌ Erreur WebSocket!");
       webSocketConnected = false;
@@ -76,35 +76,35 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 void setup() {
   Serial.begin(115200);
   Serial.println("\n⚠️ Démarrage ESP32...");
-  
+
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_ORANGE, OUTPUT);
   pinMode(LED_RED, OUTPUT);
   pinMode(LIMIT_SWITCH, INPUT_PULLUP);
   pinMode(BTN_CANCEL, INPUT_PULLUP);
-  
+
   // Éteindre toutes les LEDs
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_ORANGE, LOW);
   digitalWrite(LED_RED, LOW);
-  
+
   Serial.print("🔒 Connexion au WiFi...");
   WiFi.begin(ssid, password);
-  
+
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  
+
   Serial.println("\n💻 WiFi connecté !");
   Serial.print("📋 IP address: ");
   Serial.println(WiFi.localIP());
-  
+
   Serial.print("🔗 Connexion WebSocket à ");
   Serial.print(serverIP);
   Serial.print(":");
   Serial.println(serverPort);
-  
+
   webSocket.begin(serverIP, serverPort, "/ws/" + shift);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
@@ -112,14 +112,14 @@ void setup() {
 
 void loop() {
   webSocket.loop();
-  
+
   // Heartbeat toutes les 20 secondes
   if (webSocketConnected && (millis() - lastHeartbeat > 20000)) {
     webSocket.sendTXT("ping");
     lastHeartbeat = millis();
     Serial.println("💬 Heartbeat envoyé");
   }
-  
+
   // Lire pédale (limit switch)
   bool switchState = digitalRead(LIMIT_SWITCH);
   if (lastSwitchState == HIGH && switchState == LOW && webSocketConnected) {
@@ -128,7 +128,7 @@ void loop() {
     delay(300);
   }
   lastSwitchState = switchState;
-  
+
   // Lire bouton annulation
   bool cancelState = digitalRead(BTN_CANCEL);
   if (lastCancelState == HIGH && cancelState == LOW && webSocketConnected) {
@@ -137,6 +137,6 @@ void loop() {
     delay(300);
   }
   lastCancelState = cancelState;
-  
+
   delay(50);
 }
