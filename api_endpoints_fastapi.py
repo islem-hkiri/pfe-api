@@ -24,14 +24,12 @@ class ShiftRequest(BaseModel):
 def root():
     return {"message": "API PFE OK"}
 
-# 🔹 ETAT MACHINE (LED) - CORRIGÉ
 @app.get("/api/etat")
 def get_etat(shift: str = "A"):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # 1. Vérifier production en cours (avec ou sans emoji)
         cursor.execute("""
             SELECT id, statut, quantite
             FROM Demandes
@@ -40,7 +38,6 @@ def get_etat(shift: str = "A"):
         """, (shift,))
         en_cours = cursor.fetchone()
 
-        # 2. Vérifier demande en attente (avec ou sans emoji)
         cursor.execute("""
             SELECT id FROM Demandes
             WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
@@ -50,7 +47,6 @@ def get_etat(shift: str = "A"):
 
         conn.close()
 
-        # 🔥 LOGIC LED (priorité: En cours > En attente > Libre)
         if en_cours:
             return {
                 "statut": "🟢En cours",
@@ -60,7 +56,7 @@ def get_etat(shift: str = "A"):
         if attente:
             return {
                 "statut": "🟠En attente",
-                "machine_disponible": False  # ⚠️ Changement important: False car il y a du travail
+                "machine_disponible": False
             }
 
         return {
@@ -71,13 +67,11 @@ def get_etat(shift: str = "A"):
     except Exception as e:
         return {"error": str(e)}
 
-# 🔹 INCREMENT + AUTO START + AUTO TERMINER (CORRIGÉ)
 @app.post("/api/increment")
 def increment(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # 1. Vérifier production en cours
     cursor.execute("""
         SELECT id, quantite, reference 
         FROM Demandes 
@@ -87,7 +81,6 @@ def increment(req: ShiftRequest):
     
     demande = cursor.fetchone()
 
-    # 🔥 2. Si pas de production en cours, lancer automatiquement la première en attente
     if not demande:
         cursor.execute("""
             SELECT id, quantite, reference 
@@ -104,14 +97,12 @@ def increment(req: ShiftRequest):
 
         demande_id, Qté, ref = demande
 
-        # Démarrer la production
         cursor.execute("""
             UPDATE Demandes 
             SET statut = '🟢En cours', debut_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
 
-        # Initialiser le compteur à 0 pour cette nouvelle production
         cursor.execute("""
             INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
             VALUES (?, 0, ?, datetime('now'))
@@ -119,17 +110,15 @@ def increment(req: ShiftRequest):
             SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
         """, (req.shift, demande_id, demande_id))
         
-        compteur = 1  # Premier incrément
+        compteur = 1
 
     else:
         demande_id, Qté, ref = demande
 
-        # Récupérer le compteur actuel
         cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
         row = cursor.fetchone()
         compteur = row[0] + 1 if row else 1
 
-    # 🔹 Mettre à jour le compteur
     cursor.execute("""
         INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
         VALUES (?, ?, ?, datetime('now'))
@@ -139,7 +128,6 @@ def increment(req: ShiftRequest):
 
     termine = (compteur >= Qté)
 
-    # 🔥 AUTO TERMINER
     if termine:
         cursor.execute("""
             UPDATE Demandes 
@@ -153,7 +141,6 @@ def increment(req: ShiftRequest):
             WHERE reference = ?
         """, (Qté, ref))
 
-        # Remettre le compteur à 0 pour la prochaine production
         cursor.execute("""
             UPDATE EtatMachine 
             SET compteur_actuel = 0, demande_id = NULL
@@ -170,13 +157,11 @@ def increment(req: ShiftRequest):
         "termine": termine
     }
 
-# 🔹 DECREMENT (BOUTON ANNULATION) - CORRIGÉ
 @app.post("/api/decrement")
 def decrement(req: ShiftRequest):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Vérifier si une production est en cours
     cursor.execute("""
         SELECT id FROM Demandes 
         WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
@@ -205,6 +190,10 @@ def decrement(req: ShiftRequest):
         conn.close()
 
         return {"success": True, "compteur": nouveau}
+    
+    conn.close()
+    return {"success": False, "message": "Compteur déjà à zéro"}
+
 @app.get("/api/debug")
 def debug():
     import sqlite3
@@ -222,7 +211,6 @@ def add_direct():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # ✅ Correction: badalna 'qte' b ra9m 10
     cursor.execute("""
         INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
         VALUES ('TEST_001', 10, date('now'), 'A', 'En attente', 'Normal', datetime('now'))
@@ -231,8 +219,3 @@ def add_direct():
     conn.commit()
     conn.close()
     return {"message": "Demande TEST_001 ajoutée avec succès!"}
-    #return {"message": "Demande ajoutée avec succès! Maintenant teste /api/etat?shift=A"}
-    
-
-    conn.close()
-    return {"success": False, "message": "Compteur déjà à zéro"}

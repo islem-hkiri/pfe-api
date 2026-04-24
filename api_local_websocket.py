@@ -18,10 +18,9 @@ app.add_middleware(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 
-# ========== STOCKAGE DES CONNEXIONS ==========
 class ConnectionManager:
     def __init__(self):
-        self.active_connections = {}  # {shift: websocket}
+        self.active_connections = {}
     
     async def connect(self, websocket: WebSocket, shift: str):
         await websocket.accept()
@@ -45,12 +44,9 @@ class ConnectionManager:
         return False
 
 manager = ConnectionManager()
-
-# Variable pour stocker la dernière tâche asyncio pour chaque shift
 last_status_tasks = {}
 
 def get_status_from_db(shift: str):
-    """Récupère le statut depuis la base de données (synchrone)"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -81,9 +77,7 @@ def get_status_from_db(shift: str):
         print(f"❌ Erreur DB: {e}")
         return "Libre"
 
-# Fonction asynchrone pour envoyer le statut
 async def send_status_to_card(shift: str):
-    """Envoie le statut actuel à la carte ESP32"""
     status = get_status_from_db(shift)
     await manager.send_message(shift, status)
     return status
@@ -91,12 +85,9 @@ async def send_status_to_card(shift: str):
 class ShiftRequest(BaseModel):
     shift: str
 
-# ========== WEBSOCKET ENDPOINT ==========
 @app.websocket("/ws/{shift}")
 async def websocket_endpoint(websocket: WebSocket, shift: str):
     await manager.connect(websocket, shift)
-    
-    # Envoyer le statut immédiatement après connexion
     await send_status_to_card(shift)
     
     try:
@@ -110,10 +101,8 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
             
             elif data == "increment":
                 print("➕ Traitement increment...")
-                # Appeler la fonction increment (qui est synchrone)
                 result = increment_sync(ShiftRequest(shift=shift))
                 print(f"Résultat increment: {result}")
-                # Envoyer le nouveau statut
                 await send_status_to_card(shift)
             
             elif data == "decrement":
@@ -128,13 +117,11 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
     except WebSocketDisconnect:
         manager.disconnect(shift)
 
-# ========== FONCTIONS SYNC POUR INCREMENT/DECREMENT ==========
 def increment_sync(req: ShiftRequest):
     print(f"➕ INCREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Vérifier production en cours
     cursor.execute("""
         SELECT id, quantite, reference 
         FROM Demandes 
@@ -144,7 +131,6 @@ def increment_sync(req: ShiftRequest):
     
     demande = cursor.fetchone()
     
-    # Si pas de production, démarrer la première en attente
     if not demande:
         cursor.execute("""
             SELECT id, quantite, reference 
@@ -162,14 +148,12 @@ def increment_sync(req: ShiftRequest):
         
         demande_id, Qté, ref = demande
         
-        # Démarrer la production
         cursor.execute("""
             UPDATE Demandes 
             SET statut = '🟢En cours', debut_production = datetime('now') 
             WHERE id = ?
         """, (demande_id,))
         
-        # Initialiser compteur
         cursor.execute("""
             INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
             VALUES (?, 0, ?, datetime('now'))
@@ -187,7 +171,6 @@ def increment_sync(req: ShiftRequest):
         compteur = (row[0] + 1) if row else 1
         print(f"📊 Progression: {compteur}/{Qté}")
     
-    # Mettre à jour compteur
     cursor.execute("""
         INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
         VALUES (?, ?, ?, datetime('now'))
@@ -197,7 +180,6 @@ def increment_sync(req: ShiftRequest):
     
     termine = (compteur >= Qté)
     
-    # Auto-terminer
     if termine:
         cursor.execute("""
             UPDATE Demandes 
@@ -266,16 +248,13 @@ def decrement_sync(req: ShiftRequest):
     print("❌ Compteur déjà à zéro")
     return {"success": False, "message": "Compteur déjà à zéro"}
 
-# ========== API ENDPOINTS (pour test via navigateur) ==========
 @app.get("/")
 def root():
     return {"message": "API PFE Local avec WebSocket"}
 
 @app.get("/api/etat")
 async def get_etat(shift: str = "A"):
-    """Endpoint HTTP pour vérifier l'état"""
     status = get_status_from_db(shift)
-    # Envoyer aussi via WebSocket si connecté
     await send_status_to_card(shift)
     return {"statut": status, "machine_disponible": (status == "Libre")}
 
@@ -308,7 +287,7 @@ def add_direct():
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-        VALUES ('TEST_001', 10 , date('now'), 'B', '🟠En attente', 'Normal', datetime('now'))
+        VALUES ('TEST_001', 10, date('now'), 'B', '🟠En attente', 'Normal', datetime('now'))
     """)
     conn.commit()
     conn.close()

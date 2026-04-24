@@ -1,4 +1,3 @@
-# main_app.py
 import streamlit as st
 import subprocess
 import sys
@@ -6,11 +5,10 @@ import os
 import socket
 import time
 import atexit
-import requests  # AJOUTÉ : import manquant
+import requests
 
 from streamlit_autorefresh import st_autorefresh
 
-# ========== AUTO-LANCEMENT API ==========
 api_process = None
 
 def is_port_in_use(port):
@@ -27,7 +25,7 @@ def start_api():
         return None
     
     api_process = subprocess.Popen(
-        [sys.executable, "api_endpoints_fastapi.py"],
+        [sys.executable, "api_local_websocket.py"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
     )
@@ -39,13 +37,11 @@ def cleanup_api():
     if api_process and api_process.poll() is None:
         api_process.terminate()
 
-# Démarrer API au lancement
 if "api_started" not in st.session_state:
     st.session_state.api_started = True
     start_api()
     atexit.register(cleanup_api)
 
-# ========== GESTION DE LA CONNEXION ==========
 if "role" not in st.session_state:
     st.session_state.role = None
 
@@ -68,7 +64,6 @@ if st.session_state.role is None:
     login()
 else:
     with st.sidebar:
-        # Afficher statut API
         if is_port_in_use(8000):
             st.success("🟢 API connectée")
         else:
@@ -78,18 +73,18 @@ else:
             st.session_state.role = None
             st.rerun()
     
-    # ========== AFFICHAGE DES DONNÉES (seulement après connexion) ==========
-    # Refresh el page kol 10 secondes
     st_autorefresh(interval=10000, key="datarefresh")
     
-    # Appel API pour récupérer les données
     try:
-        data = requests.get("https://pfe-api-uju4.onrender.com/api/etat?shift=shift").json()
-        st.write("Dernière mise à jour :", data)
+        response = requests.get("http://localhost:8000/api/etat?shift=A")
+        if response.status_code == 200:
+            data = response.json()
+            st.write("Dernière mise à jour :", data)
+        else:
+            st.error(f"Erreur API: {response.status_code}")
     except Exception as e:
         st.error(f"Erreur lors de la récupération des données : {e}")
     
-    # ========== TON CODE ORIGINAL (GARDE LA SUITE) ==========
     if st.session_state.role == "Logistique":
         exec(open("logistique_app.py").read())
     elif st.session_state.role == "Opérateur":

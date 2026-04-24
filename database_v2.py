@@ -73,7 +73,6 @@ def init_db():
     )
     """)
 
-    # Import Dispatching
     try:
         df_k = pd.read_excel(KANBAN_PATH, sheet_name="DISPATCHING REF")
         for i, row in df_k.iterrows():
@@ -90,7 +89,6 @@ def init_db():
     except Exception as e:
         print(f"❌ Erreur Dispatching: {e}")
 
-    # Import BESOIN
     try:
         wb = openpyxl.load_workbook(KANBAN_PATH, data_only=True)
         if "BESOIN" in wb.sheetnames:
@@ -120,7 +118,6 @@ def init_db():
     except Exception as e:
         print(f"❌ Erreur Logistique : {e}")
 
-    # Import PDB
     try:
         df_pdb = pd.read_excel(PDB_PATH, sheet_name=0)
         for _, row in df_pdb.iterrows():
@@ -143,6 +140,14 @@ def init_db():
     conn.commit()
     conn.close()
     print("✅ Base de données initialisée avec succès!")
+
+def manual_sync():
+    """Fonction pour synchroniser manuellement les données"""
+    try:
+        init_db()
+        return "✅ Synchronisation terminée avec succès!"
+    except Exception as e:
+        return f"❌ Erreur lors de la synchronisation: {e}"
 
 if __name__ == "__main__":
     init_db()
