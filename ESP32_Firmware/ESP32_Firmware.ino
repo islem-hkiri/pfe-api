@@ -2,11 +2,11 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 
-const char* ssid = "Infinix HOT 30";
-const char* password = "chaima123";
+const char* ssid = "A17 de Hkiri";
+const char* password = "4w3gshixthsz8h";
 
 // 🔥 CHANGE CETTE IP ! (celle de ton PC)
-const char* serverIP = "10.221.91.33";  // L'IP que tu as trouvée
+const char* serverIP = "10.15.254.33";  // L'IP que tu as trouvée
 const int serverPort = 8000;
 
 #define LED_GREEN 26

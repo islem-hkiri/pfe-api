@@ -7,6 +7,15 @@ import socket
 import time
 import atexit
 
+from streamlit_autorefresh import st_autorefresh
+
+# Refresh el page kol 10000ms (10 secondes)
+st_autorefresh(interval=10000, key="datarefresh")
+
+# El code elli ta7tou bech yet3awed automatique kol 10s
+data = requests.get("https://pfe-api-uju4.onrender.com/api/etat?shift=shift").json()
+st.write("Dernière mise à jour :", data)
+
 # ========== AUTO-LANCEMENT API ==========
 api_process = None
 
