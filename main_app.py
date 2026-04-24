@@ -61,19 +61,19 @@ def login():
         else:
             st.error("Mot de passe incorrect")
 
-if st.session_state.role is None:
-    login()
-else:
-    with st.sidebar:
+#if st.session_state.role is None:
+ #   login()
+#else:
+ #   with st.sidebar:
         # Afficher statut API
-        if is_port_in_use(8000):
-            st.success("🟢 API connectée")
-        else:
-            st.error("🔴 API déconnectée")
+  #      if is_port_in_use(8000):
+    #        st.success("🟢 API connectée")
+      #  else:
+       #     st.error("🔴 API déconnectée")
         
-        if st.button("Déconnexion"):
-            st.session_state.role = None
-            st.rerun()
+        #if st.button("Déconnexion"):
+         #   st.session_state.role = None
+          #  st.rerun()
     
     if st.session_state.role == "Logistique":
         exec(open("logistique_app.py").read())
