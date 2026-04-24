@@ -160,7 +160,7 @@ def increment_sync(req: ShiftRequest):
             print("❌ Aucune demande en attente")
             return {"success": False, "message": "Aucune demande en attente"}
         
-        demande_id, qte_max, ref = demande
+        demande_id, Qté, ref = demande
         
         # Démarrer la production
         cursor.execute("""
@@ -178,14 +178,14 @@ def increment_sync(req: ShiftRequest):
         """, (req.shift, demande_id, demande_id))
         
         compteur = 1
-        print(f"🚀 Production démarrée: {ref} - Quantité à produire: {qte_max}")
+        print(f"🚀 Production démarrée: {ref} - Quantité à produire: {Qté}")
         
     else:
-        demande_id, qte_max, ref = demande
+        demande_id, Qté, ref = demande
         cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
         row = cursor.fetchone()
         compteur = (row[0] + 1) if row else 1
-        print(f"📊 Progression: {compteur}/{qte_max}")
+        print(f"📊 Progression: {compteur}/{Qté}")
     
     # Mettre à jour compteur
     cursor.execute("""
@@ -195,7 +195,7 @@ def increment_sync(req: ShiftRequest):
         SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')
     """, (req.shift, compteur, demande_id, compteur, demande_id))
     
-    termine = (compteur >= qte_max)
+    termine = (compteur >= Qté)
     
     # Auto-terminer
     if termine:
@@ -209,7 +209,7 @@ def increment_sync(req: ShiftRequest):
             UPDATE Stock 
             SET quantite = quantite + ? 
             WHERE reference = ?
-        """, (qte_max, ref))
+        """, (Qté, ref))
         
         cursor.execute("""
             UPDATE EtatMachine 
@@ -217,7 +217,7 @@ def increment_sync(req: ShiftRequest):
             WHERE shift = ?
         """, (req.shift,))
         
-        print(f"✅ Production TERMINÉE! {qte_max} unités de {ref}")
+        print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
     
     conn.commit()
     conn.close()
@@ -225,7 +225,7 @@ def increment_sync(req: ShiftRequest):
     return {
         "success": True,
         "compteur": compteur,
-        "max": qte_max,
+        "max": Qté,
         "termine": termine
     }
 
