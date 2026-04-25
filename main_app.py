@@ -6,9 +6,31 @@ import socket
 import time
 import atexit
 import requests
-
 from streamlit_autorefresh import st_autorefresh
+import sqlite3
+import pandas as pd
+from datetime import datetime
 
+# ==========================================
+# 🔥 CONFIGURATION API RENDER
+# ==========================================
+API_BASE_URL = "https://pfe-api-uju4.onrender.com"
+
+# Base de données locale
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
+
+def init_local_db():
+    """Initialiser la base locale si nécessaire"""
+    try:
+        from database_v2 import init_db
+        if not os.path.exists(DB_PATH):
+            init_db()
+    except Exception as e:
+        st.error(f"Erreur initialisation DB: {e}")
+
+# Initialiser la base au démarrage
+init_local_db()
 api_process = None
 
 def is_port_in_use(port):
