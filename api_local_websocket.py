@@ -99,6 +99,10 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
                 await websocket.send_text("pong")
                 print("💓 Pong envoyé")
             
+            elif data == "get_status":
+                print("🔄 Demande de statut reçue")
+                await send_status_to_card(shift)
+            
             elif data == "increment":
                 print("➕ Traitement increment...")
                 result = increment_sync(ShiftRequest(shift=shift))
@@ -202,7 +206,7 @@ def increment_sync(req: ShiftRequest):
         print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
         
         # ==========================================
-        # 🔄 AUTO-DEMARRAGE prochaine demande (avec emojis)
+        # 🔄 AUTO-DEMARRAGE prochaine demande
         # ==========================================
         cursor.execute("""
             SELECT id, quantite, reference

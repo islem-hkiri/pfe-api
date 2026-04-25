@@ -6,13 +6,13 @@ const char* ssid = "A17 de Hkiri";
 const char* password = "4w3gshixthsz8h";
 
 // 🔥 CHANGE CETTE IP ! (celle de ton PC)
-const char* serverIP = "10.15.254.33";  // L'IP que tu as trouvée
+const char* serverIP = "10.15.254.33";
 const int serverPort = 8000;
 
 #define LED_GREEN 26
 #define LED_ORANGE 27
 #define LED_RED 14
-#define LIMIT_SWITCH 25  // Changé (pull-up OK)
+#define LIMIT_SWITCH 25
 #define BTN_CANCEL   33
 
 String shift = "B";
@@ -22,6 +22,7 @@ bool webSocketConnected = false;
 
 WebSocketsClient webSocket;
 unsigned long lastHeartbeat = 0;
+unsigned long lastStatusRequest = 0;  // 👈 NOUVEAU : pour demander le statut périodiquement
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch (type) {
@@ -33,6 +34,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_CONNECTED:
       Serial.println("✅ WebSocket connecté!");
       webSocketConnected = true;
+      // 👈 Demander le statut immédiatement après connexion
+      webSocket.sendTXT("get_status");
       break;
 
     case WStype_TEXT:
@@ -61,7 +64,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           digitalWrite(LED_RED, HIGH);
         }
         else if (message == "pong") {
-          // Ne rien faire, juste garder la connexion active
+          // Réponse au heartbeat
         }
       }
       break;
@@ -80,8 +83,9 @@ void setup() {
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_ORANGE, OUTPUT);
   pinMode(LED_RED, OUTPUT);
-  pinMode(LIMIT_SWITCH, INPUT_PULLUP);  // ✅ Maintenant OK
-  pinMode(BTN_CANCEL, INPUT_PULLUP); 
+  pinMode(LIMIT_SWITCH, INPUT_PULLUP);
+  pinMode(BTN_CANCEL, INPUT_PULLUP);
+  
   // Éteindre toutes les LEDs
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_ORANGE, LOW);
@@ -117,6 +121,13 @@ void loop() {
     webSocket.sendTXT("ping");
     lastHeartbeat = millis();
     Serial.println("💬 Heartbeat envoyé");
+  }
+
+  // 👈 NOUVEAU : Demander le statut toutes les 3 secondes
+  if (webSocketConnected && (millis() - lastStatusRequest > 3000)) {
+    webSocket.sendTXT("get_status");
+    lastStatusRequest = millis();
+    Serial.println("🔄 Demande de statut envoyée");
   }
 
   // Lire pédale (limit switch)
