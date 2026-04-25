@@ -200,6 +200,39 @@ def increment_sync(req: ShiftRequest):
         """, (req.shift,))
         
         print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
+        
+        # ==========================================
+        # 🔄 AUTO-DEMARRAGE prochaine demande (avec emojis)
+        # ==========================================
+        cursor.execute("""
+            SELECT id, quantite, reference
+            FROM Demandes
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+            ORDER BY id ASC
+            LIMIT 1
+        """, (req.shift,))
+        next_demande = cursor.fetchone()
+        
+        if next_demande:
+            next_id, next_qte, next_ref = next_demande
+            
+            cursor.execute("""
+                UPDATE Demandes
+                SET statut = '🟢En cours',
+                    debut_production = datetime('now')
+                WHERE id = ?
+            """, (next_id,))
+            
+            cursor.execute("""
+                INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+                VALUES (?, 0, ?, datetime('now'))
+                ON CONFLICT(shift) DO UPDATE
+                SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
+            """, (req.shift, next_id, next_id))
+            
+            print(f"🔄 Auto-démarrage demande {next_ref} (Quantité: {next_qte})")
+            conn.commit()
+        # ==========================================
     
     conn.commit()
     conn.close()
