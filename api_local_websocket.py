@@ -287,10 +287,10 @@ def decrement_sync(req: ShiftRequest):
 
 @app.get("/")
 def root():
-    return {"message": "API PFE Local avec WebSocket"}
+    return {"message": "API PFE avec WebSocket"}
 
 @app.get("/api/etat")
-async def get_etat(shift: str = "A"):
+async def get_etat(shift: str = "B"):
     status = get_status_from_db(shift)
     await send_status_to_card(shift)
     return {"statut": status, "machine_disponible": (status == "Libre")}
@@ -336,9 +336,5 @@ if __name__ == "__main__":
     print("🚀 SERVEUR DÉMARRÉ")
     print(f"📡 HTTP: http://localhost:8000")
     print(f"🔌 WebSocket: ws://localhost:8000/ws/{{shift}}")
-    print("="*50)
-    print("\n💡 Pour tester:")
-    print("   1. Ouvre http://localhost:8000/api/add_direct")
-    print("   2. Appuie sur la pédale ESP32")
     print("="*50)
     uvicorn.run(app, host="0.0.0.0", port=8000)

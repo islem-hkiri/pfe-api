@@ -5,9 +5,9 @@
 const char* ssid = "A17 de Hkiri";
 const char* password = "4w3gshixthsz8h";
 
-// 🔥 CHANGE CETTE IP ! (celle de ton PC)
-const char* serverIP = "10.15.254.33";
-const int serverPort = 8000;
+// 🔥 MAINANT C'EST L'IP DE RENDER (serveur remote)
+const char* serverIP = "pfe-api-uju4.onrender.com";  // ← Serveur remote
+const int serverPort = 80;  // HTTP port, pas 8000
 
 #define LED_GREEN 26
 #define LED_ORANGE 27
@@ -22,7 +22,7 @@ bool webSocketConnected = false;
 
 WebSocketsClient webSocket;
 unsigned long lastHeartbeat = 0;
-unsigned long lastStatusRequest = 0;  // 👈 NOUVEAU : pour demander le statut périodiquement
+unsigned long lastStatusRequest = 0;
 
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   switch (type) {
@@ -32,9 +32,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
 
     case WStype_CONNECTED:
-      Serial.println("✅ WebSocket connecté!");
+      Serial.println("✅ WebSocket connecté à Render!");
       webSocketConnected = true;
-      // 👈 Demander le statut immédiatement après connexion
       webSocket.sendTXT("get_status");
       break;
 
@@ -44,7 +43,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         Serial.print("📨 Message reçu du serveur: ");
         Serial.println(message);
 
-        // 🔥 TRAITER LE STATUT REÇU
         if (message == "Libre") {
           Serial.println("🟢 État: LIBRE - LED VERTE");
           digitalWrite(LED_GREEN, HIGH);
@@ -62,9 +60,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           digitalWrite(LED_GREEN, LOW);
           digitalWrite(LED_ORANGE, LOW);
           digitalWrite(LED_RED, HIGH);
-        }
-        else if (message == "pong") {
-          // Réponse au heartbeat
         }
       }
       break;
@@ -86,7 +81,6 @@ void setup() {
   pinMode(LIMIT_SWITCH, INPUT_PULLUP);
   pinMode(BTN_CANCEL, INPUT_PULLUP);
   
-  // Éteindre toutes les LEDs
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_ORANGE, LOW);
   digitalWrite(LED_RED, LOW);
@@ -108,6 +102,7 @@ void setup() {
   Serial.print(":");
   Serial.println(serverPort);
 
+  // Connexion au serveur Render (websocket)
   webSocket.begin(serverIP, serverPort, "/ws/" + shift);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
@@ -116,21 +111,18 @@ void setup() {
 void loop() {
   webSocket.loop();
 
-  // Heartbeat toutes les 20 secondes
   if (webSocketConnected && (millis() - lastHeartbeat > 20000)) {
     webSocket.sendTXT("ping");
     lastHeartbeat = millis();
     Serial.println("💬 Heartbeat envoyé");
   }
 
-  // 👈 NOUVEAU : Demander le statut toutes les 3 secondes
   if (webSocketConnected && (millis() - lastStatusRequest > 3000)) {
     webSocket.sendTXT("get_status");
     lastStatusRequest = millis();
     Serial.println("🔄 Demande de statut envoyée");
   }
 
-  // Lire pédale (limit switch)
   bool switchState = digitalRead(LIMIT_SWITCH);
   if (lastSwitchState == HIGH && switchState == LOW && webSocketConnected) {
     Serial.println("☑️ Pédale pressée - Incrémentation");
@@ -139,7 +131,6 @@ void loop() {
   }
   lastSwitchState = switchState;
 
-  // Lire bouton annulation
   bool cancelState = digitalRead(BTN_CANCEL);
   if (lastCancelState == HIGH && cancelState == LOW && webSocketConnected) {
     Serial.println("🔘 Annulation pressée - Décrémentation");
