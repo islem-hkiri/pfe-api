@@ -8,3 +8,8 @@ pyarrow
 fastapi
 uvicorn
 sqlalchemy
+fastapi
+uvicorn
+python-multipart
+websockets
+python-socketio
