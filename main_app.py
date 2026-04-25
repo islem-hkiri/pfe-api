@@ -1,18 +1,13 @@
 import streamlit as st
-import subprocess
-import sys
-import os
-import socket
-import time
-import atexit
 import requests
-from streamlit_autorefresh import st_autorefresh
 import sqlite3
 import pandas as pd
+import os
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 # ==========================================
-# 🔥 CONFIGURATION API RENDER
+# 🔥 CONFIGURATION API RENDER (serveur remote)
 # ==========================================
 API_BASE_URL = "https://pfe-api-uju4.onrender.com"
 
@@ -31,83 +26,239 @@ def init_local_db():
 
 # Initialiser la base au démarrage
 init_local_db()
-api_process = None
 
-def is_port_in_use(port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.bind(('0.0.0.0', port))
-            return False
-        except socket.error:
-            return True
-
-def start_api():
-    global api_process
-    if is_port_in_use(8000):
-        return None
-    
-    api_process = subprocess.Popen(
-        [sys.executable, "api_local_websocket.py"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL
-    )
-    time.sleep(2)
-    return api_process
-
-def cleanup_api():
-    global api_process
-    if api_process and api_process.poll() is None:
-        api_process.terminate()
-
-if "api_started" not in st.session_state:
-    st.session_state.api_started = True
-    start_api()
-    atexit.register(cleanup_api)
-
+# ==========================================
+# 🔐 GESTION LOGIN
+# ==========================================
 if "role" not in st.session_state:
     st.session_state.role = None
 
 def login():
-    st.title("Connexion")
-    user = st.text_input("Utilisateur (Logistique ou Opérateur)")
-    password = st.text_input("Mot de passe", type="password")
+    st.set_page_config(page_title="Gestion Production - Connexion", page_icon="🔐")
     
-    if st.button("Se connecter"):
-        if user.lower() == "logistique" and password == "log123":
-            st.session_state.role = "Logistique"
-            st.rerun()
-        elif user.lower() == "operateur" and password == "op123":
-            st.session_state.role = "Opérateur"
-            st.rerun()
-        else:
-            st.error("Mot de passe incorrect")
+    st.title("🔐 Connexion - Gestion Production")
+    st.markdown("---")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        user = st.text_input("👤 Utilisateur", placeholder="logistique ou operateur")
+        password = st.text_input("🔒 Mot de passe", type="password", placeholder="********")
+        
+        if st.button("🔓 Se connecter", use_container_width=True, type="primary"):
+            if user.lower() == "logistique" and password == "log123":
+                st.session_state.role = "Logistique"
+                st.rerun()
+            elif user.lower() == "operateur" and password == "op123":
+                st.session_state.role = "Opérateur"
+                st.rerun()
+            else:
+                st.error("❌ Utilisateur ou mot de passe incorrect")
 
 if st.session_state.role is None:
     login()
-else:
-    with st.sidebar:
-        if is_port_in_use(8000):
-            st.success("🟢 API connectée")
-        else:
-            st.error("🔴 API déconnectée")
-        
-        if st.button("Déconnexion"):
-            st.session_state.role = None
-            st.rerun()
+    st.stop()
+
+# ==========================================
+# INTERFACE PRINCIPALE APRÈS LOGIN
+# ==========================================
+st.set_page_config(page_title="Gestion Production", layout="wide")
+
+# Auto refresh toutes les 5 secondes
+st_autorefresh(interval=5000, key="refresh")
+
+# Sidebar
+with st.sidebar:
+    st.title(f"👋 {st.session_state.role}")
     
-    st_autorefresh(interval=10000, key="datarefresh")
-    
+    # Tester la connexion à l'API Render
     try:
-        response = requests.get("http://localhost:8000/api/etat?shift=A")
+        response = requests.get(f"{API_BASE_URL}/api/etat?shift=B", timeout=5)
+        if response.status_code == 200:
+            st.success("🟢 Connecté à l'API Render")
+            data = response.json()
+            st.metric("État Machine Shift B", data.get('statut', 'Inconnu'))
+            st.metric("Machine Disponible", "✅ Oui" if data.get('machine_disponible') else "❌ Non")
+        else:
+            st.error("🔴 API Render non disponible")
+    except Exception as e:
+        st.error(f"🔴 Erreur connexion API: {e}")
+    
+    st.markdown("---")
+    
+    if st.button("🚪 Déconnexion", use_container_width=True):
+        st.session_state.role = None
+        st.rerun()
+
+# ==========================================
+# INTERFACE LOGISTIQUE
+# ==========================================
+if st.session_state.role == "Logistique":
+    st.title("🏭 Interface Logistique - Supervision")
+    st.markdown("---")
+    
+    # Afficher l'état machine depuis Render
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/etat?shift=B", timeout=5)
         if response.status_code == 200:
             data = response.json()
-            st.write("Dernière mise à jour :", data)
-        else:
-            st.error(f"Erreur API: {response.status_code}")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("🚦 État Machine", data.get('statut', 'Inconnu'))
+            with col2:
+                st.metric("🟢 Machine Disponible", "✅ Oui" if data.get('machine_disponible') else "❌ Non")
+            with col3:
+                st.metric("⏰ Mise à jour", datetime.now().strftime("%H:%M:%S"))
     except Exception as e:
-        st.error(f"Erreur lors de la récupération des données : {e}")
+        st.error(f"Erreur API: {e}")
     
-    if st.session_state.role == "Logistique":
-        exec(open("logistique_app.py").read())
-    elif st.session_state.role == "Opérateur":
-        exec(open("operateur_app.py").read())
+    st.markdown("---")
+    
+    # Afficher les demandes depuis la base locale
+    st.subheader("📋 Demandes de Production")
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        query = """
+        SELECT id, reference, quantite, shift, statut, urgence, date_besoin
+        FROM Demandes 
+        WHERE statut NOT LIKE '%Terminé%' AND statut != 'Archive'
+        ORDER BY 
+            CASE 
+                WHEN statut LIKE '%En cours%' THEN 1 
+                ELSE 2 
+            END,
+            date_besoin ASC
+        """
+        df = pd.read_sql_query(query, conn)
+        
+        if not df.empty:
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("📭 Aucune demande en attente ou en cours")
+        
+        # Ajouter nouvelle demande
+        st.markdown("---")
+        st.subheader("🛒 Nouvelle Demande")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            ref = st.text_input("Référence", "TEST_001")
+            qte = st.number_input("Quantité", 1, 10000, 10)
+        with col2:
+            shift_choice = st.selectbox("Shift", ["A", "B"])
+            urgence = st.selectbox("Urgence", ["Normal", "Urgent", "Critique"])
+            date_besoin = st.date_input("Date besoin", datetime.now())
+        
+        if st.button("📤 Envoyer", type="primary"):
+            conn.execute("""
+                INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
+                VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
+            """, (ref, qte, date_besoin.strftime("%Y-%m-%d"), shift_choice, urgence))
+            conn.commit()
+            st.success(f"✅ Demande ajoutée!")
+            st.rerun()
+        
+        # Alertes pannes
+        st.markdown("---")
+        st.subheader("🚨 Alertes Pannes")
+        
+        df_pannes = pd.read_sql_query("""
+            SELECT operateur_id, cause, debut_panne, statut 
+            FROM Pannes WHERE statut = '🔴 Ouvert' ORDER BY id DESC
+        """, conn)
+        
+        if not df_pannes.empty:
+            for _, row in df_pannes.iterrows():
+                st.error(f"""
+                    **🚨 ALERTE**
+                    - **Opérateur:** {row['operateur_id']}
+                    - **Message:** {row['cause']}
+                    - **Heure:** {row['debut_panne']}
+                """)
+            
+            if st.button("✅ Confirmer"):
+                conn.execute("UPDATE Pannes SET statut = 'Résolu', fin_panne = datetime('now') WHERE statut = '🔴 Ouvert'")
+                conn.commit()
+                st.rerun()
+        else:
+            st.success("✅ Aucune panne")
+        
+        conn.close()
+    except Exception as e:
+        st.error(f"Erreur: {e}")
+
+# ==========================================
+# INTERFACE OPÉRATEUR
+# ==========================================
+else:
+    st.title("🔧 Interface Opérateur - Poste Soudure")
+    
+    shift_op = st.radio("📋 Shift", ["A", "B"], horizontal=True)
+    st.subheader(f"📋 Tâches Shift {shift_op}")
+    
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        query = """
+        SELECT d.id, d.reference, d.quantite, d.statut, p.module, p.famille,
+               p.pression, p.temps, p.amplitude, d.debut_production
+        FROM Demandes d
+        LEFT JOIN Produits p ON d.reference = p.reference
+        WHERE d.shift = ? AND d.statut NOT LIKE '%Terminé%' AND d.statut != 'Archive'
+        ORDER BY CASE WHEN d.statut LIKE '%En cours%' THEN 1 ELSE 2 END, d.date_besoin ASC
+        """
+        tasks = conn.execute(query, (shift_op,)).fetchall()
+        
+        if tasks:
+            for task in tasks:
+                (id_d, ref, qte, statut, module, famille, 
+                 pression, temps, amplitude, debut_prod) = task
+                
+                emoji = "🔴" if "En cours" in statut else "🟠"
+                
+                with st.expander(f"{emoji} {module or ref} | Qté: {qte}"):
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.write(f"**Réf:** {ref}")
+                        st.write(f"**Famille:** {famille or '~'}")
+                        if pression:
+                            st.write(f"**Paramètres:** {pression} bar / {temps}s / {amplitude}%")
+                    with col2:
+                        if "En attente" in statut:
+                            if st.button(f"🚀 Lancer", key=f"start_{id_d}"):
+                                try:
+                                    requests.post(f"{API_BASE_URL}/api/increment", json={"shift": shift_op}, timeout=5)
+                                    st.success("Lancé!")
+                                    st.rerun()
+                                except:
+                                    conn.execute("UPDATE Demandes SET statut = '🟢En cours', debut_production = datetime('now') WHERE id = ?", (id_d,))
+                                    conn.commit()
+                                    st.rerun()
+                        elif "En cours" in statut:
+                            st.info("🔴 En cours...")
+                            if st.button(f"➕ +1", key=f"inc_{id_d}"):
+                                try:
+                                    requests.post(f"{API_BASE_URL}/api/increment", json={"shift": shift_op}, timeout=5)
+                                    st.rerun()
+                                except:
+                                    st.rerun()
+        else:
+            st.success("✅ Aucune tâche")
+        
+        # Signaler panne
+        st.markdown("---")
+        st.subheader("🚨 Signaler Panne")
+        with st.form("panne"):
+            cause = st.text_area("Description")
+            if st.form_submit_button("SIGNALER"):
+                if cause:
+                    conn.execute("""
+                        INSERT INTO Pannes (operateur_id, cause, debut_panne, statut)
+                        VALUES (?, ?, datetime('now'), '🔴 Ouvert')
+                    """, (f"OP_{shift_op}", cause))
+                    conn.commit()
+                    st.error("✅ Panne signalée!")
+                    st.rerun()
+        
+        conn.close()
+    except Exception as e:
+        st.error(f"Erreur: {e}")
