@@ -12,8 +12,8 @@ const int serverPort = 8000;
 #define LED_GREEN 26
 #define LED_ORANGE 27
 #define LED_RED 14
-#define LIMIT_SWITCH 32
-#define BTN_CANCEL 34
+#define LIMIT_SWITCH 25  // Changé (pull-up OK)
+#define BTN_CANCEL   33
 
 String shift = "B";
 bool lastSwitchState = HIGH;
@@ -80,9 +80,8 @@ void setup() {
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_ORANGE, OUTPUT);
   pinMode(LED_RED, OUTPUT);
-  pinMode(LIMIT_SWITCH, INPUT_PULLUP);
-  pinMode(BTN_CANCEL, INPUT_PULLUP);
-
+  pinMode(LIMIT_SWITCH, INPUT_PULLUP);  // ✅ Maintenant OK
+  pinMode(BTN_CANCEL, INPUT_PULLUP); 
   // Éteindre toutes les LEDs
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_ORANGE, LOW);
