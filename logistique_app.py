@@ -30,8 +30,21 @@ st.sidebar.title("📊 Tableau de Bord")
 # Récupération des données API
 try:
     response = requests.get("https://pfe-api-uju4.onrender.com/api/full_data", timeout=10)
+
     if response.status_code == 200:
-        data = response.json()["demandes"]
+        json_data = response.json()
+
+        # ✅ ما عادش يطيح كي ما يلقاش demandes
+        if isinstance(json_data, dict) and "demandes" in json_data:
+            data = json_data["demandes"]
+        else:
+            data = []
+    else:
+        data = []
+
+except Exception as e:
+    st.sidebar.error(f"Erreur API: {e}")
+    data = []
     else:
         data = []
 except Exception as e:
