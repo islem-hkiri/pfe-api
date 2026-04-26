@@ -117,7 +117,14 @@ def increment(req: ShiftRequest):
 
         cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
         row = cursor.fetchone()
-        compteur = row[0] + 1 if row else 1
+        compteur = row[0] if row else 0
+        
+        # ✅ VÉRIFICATION ICI
+        if compteur >= Qté:
+            conn.close()
+            return {"success": False, "message": f"Quantité maximale {Qté} atteinte"}
+
+        compteur += 1
 
     cursor.execute("""
         INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
