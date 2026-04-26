@@ -46,7 +46,7 @@ with st.sidebar:
                         else:
                             st.warning("Saisir ID operateur + cause")
 
-    with st.expander("Historique"):
+        with st.expander("Historique"):
         conn = None
         try:
             response = requests.get("https://pfe-api-uju4.onrender.com/api/full_data")
