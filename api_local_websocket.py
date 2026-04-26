@@ -121,7 +121,7 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
     except WebSocketDisconnect:
         manager.disconnect(shift)
 
-c:\Users\islem\Desktop\pfe-api
+#c:\users\islem\Desktop\pfe-api
         
         # ==========================================
         # 🔄 AUTO-DEMARRAGE prochaine demande
