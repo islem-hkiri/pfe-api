@@ -336,9 +336,10 @@ def root():
 
 @app.get("/api/etat")
 async def get_etat(shift: str = "B"):
-    status = get_status_from_db(shift)
-    await send_status_to_card(shift)
-    return {"statut": status, "machine_disponible": (status == "Libre")}
+        status = get_status_from_db(shift)
+        await send_status_to_card(shift)
+        return {"statut": status, "machine_disponible": (status == "Libre")}
+        
 
 @app.post("/api/increment")
 async def increment(req: ShiftRequest):
@@ -360,20 +361,6 @@ def debug():
     data = cursor.fetchall()
     conn.close()
     return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
-
-#@app.get("/api/add_direct")
-#def add_direct():
- #   import sqlite3
-  #  from datetime import datetime
-   # conn = sqlite3.connect(DB_PATH)
-    #cursor = conn.cursor()
-    #cursor.execute("""
-     #   INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-      #  VALUES ('TEST_001', 10, date('now'), 'B', '🟠En attente', 'Normal', datetime('now'))
-    #""")
-    #conn.commit()
-    #conn.close()
-    #return {"message": "Demande TEST_001 ajoutée pour shift B! Allez teste la pédale maintenant!"}
 
 if __name__ == "__main__":
     import uvicorn
