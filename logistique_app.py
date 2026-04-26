@@ -45,11 +45,6 @@ try:
 except Exception as e:
     st.sidebar.error(f"Erreur API: {e}")
     data = []
-    else:
-        data = []
-except Exception as e:
-    st.sidebar.error(f"Erreur API: {e}")
-    data = []
 
 # Calcul des métriques
 total = conn.execute("SELECT COUNT(*) FROM Demandes").fetchone()[0]
@@ -149,13 +144,13 @@ try:
     if not df_alertes.empty:
         for index, row in df_alertes.iterrows():
             st.error(f"""
-                ** NOUVELLE ALERTE REÇUE**
+                **⚠️ NOUVELLE ALERTE REÇUE**
                 * **Message de l'Opérateur :** {row['cause']}
                 * **Envoyé par :** {row['operateur_id']}
                 * **Heure :** {row['debut_panne']}
             """)
         
-        if st.button(" Confirmer la réception / Traiter"):
+        if st.button("✅ Confirmer la réception / Traiter"):
             conn.execute("UPDATE Pannes SET statut = 'Résolu', fin_panne = datetime('now') WHERE statut = '🔴 Ouvert'")
             conn.commit()
             st.success("L'alerte a été marquée comme traitée.")
@@ -211,7 +206,7 @@ with st.container():
         urg = st.selectbox("Urgence", ["Normal", "Urgent", "Critique"])
         date_b = st.date_input("Date de besoin")
 
-    if st.button("Ajouter à la liste", use_container_width=True):
+    if st.button("➕ Ajouter à la liste", use_container_width=True):
         st.session_state.panier.append({
             "Reference": ref_choisie,
             "Quantite": qte_voulue,
@@ -223,16 +218,16 @@ with st.container():
 
 # AFFICHAGE PANIER + ENVOI
 if st.session_state.panier:
-    st.write("Liste en cours de préparation")
+    st.write("📋 Liste en cours de préparation")
     st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True)
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        if st.button("Annuler tout", use_container_width=True):
+        if st.button("🗑️ Annuler tout", use_container_width=True):
             st.session_state.panier = []
             st.rerun()
     with col_b2:
-        if st.button("Envoyer au montage", type="primary", use_container_width=True):
+        if st.button("📤 Envoyer au montage", type="primary", use_container_width=True):
             for item in st.session_state.panier:
                 try:
                     response = requests.post(
@@ -247,19 +242,19 @@ if st.session_state.panier:
                         timeout=10
                     )
                     if response.status_code == 200:
-                        st.success(f"{item['Reference']} envoyée avec succès!")
+                        st.success(f"✅ {item['Reference']} envoyée avec succès!")
                     else:
                         st.error(f"❌ Erreur pour {item['Reference']}: {response.status_code}")
                 except Exception as e:
                     st.error(f"❌ Erreur connexion API pour {item['Reference']}: {e}")
 
             st.session_state.panier = []
-            st.success("Toutes les demandes ont été envoyées avec succès !")
+            st.success("✅ Toutes les demandes ont été envoyées avec succès !")
             st.rerun()
 
 # SUPERVISION GRAPHIQUE
 st.markdown("---")
-st.subheader("Historique de Production (Journalier)")
+st.subheader("📊 Historique de Production (Journalier)")
 
 try:
     df_chart = pd.read_sql_query("""
