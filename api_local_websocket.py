@@ -253,16 +253,16 @@ def increment_sync(req: ShiftRequest):
         # ==========================================
         # 🔄 AUTO-DEMARRAGE prochaine demande
         # ==========================================
-        cursor.execute("""
+    cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes
             WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
             ORDER BY id ASC
             LIMIT 1
         """, (req.shift,))
-        next_demande = cursor.fetchone()
+    next_demande = cursor.fetchone()
         
-        if next_demande:
+    if next_demande:
             next_id, next_qte, next_ref = next_demande
             
             cursor.execute("""
