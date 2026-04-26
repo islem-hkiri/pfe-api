@@ -1,3 +1,4 @@
+import requests
 import streamlit as st
 import sqlite3
 from datetime import datetime
@@ -175,8 +176,13 @@ except Exception as e:
 st.markdown("---")
 st.subheader(" Nouvelle Demande de Production")
 
+# Initialize panier
 if "panier" not in st.session_state:
     st.session_state.panier = []
+
+# PRÉPARATION DE COMMANDE (PANIER)
+st.markdown("---")
+st.subheader(" Nouvelle Demande de Production")
 
 with st.container():
     c1, c2 = st.columns(2)
@@ -196,8 +202,10 @@ with st.container():
             "Urgence": urg,
             "Date_Besoin": str(date_b)
         })
+        st.success(f"{ref_choisie} ajouté !")
+        st.rerun()
 
-# ENVOI
+# AFFICHAGE PANIER + ENVOI
 if st.session_state.panier:
     st.write("Liste en cours de préparation")
     st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True)
@@ -209,26 +217,86 @@ if st.session_state.panier:
             st.rerun()
     with col_b2:
         if st.button(" Envoyer au montage", type="primary", use_container_width=True):
-            maintenant = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            import requests
+            
             for item in st.session_state.panier:
-                res = conn.execute("SELECT quantite FROM Stock WHERE reference = ?", (item['Reference'],)).fetchone()
-                stock_actuel = res[0] if res else 0
-                besoin_reel = max(0, item['Quantite'] - stock_actuel)
+                for s in ['A', 'B']:
+                    try:
+                        response = requests.post(
+                            "https://pfe-api-uju4.onrender.com/api/create_demande",
+                            json={
+                                "reference": item["Reference"],
+                                "quantite": item["Quantite"],
+                                "date_besoin": item["Date_Besoin"],
+                                "shift": s,
+                                "urgence": item["Urgence"]
+                            },
+                            timeout=10
+                        )
+                    except Exception as e:
+                        st.error(f"Erreur API: {e}")
 
-                if besoin_reel > 0:
-                    for s in ['A', 'B']:
-                        conn.execute("""
-                            INSERT INTO Demandes 
-                            (reference, quantite, date_besoin, shift, statut, urgence, heure_demande) 
-                            VALUES (?, ?, ?, ?, '🟠En attente', ?, ?)
-                        """, (item['Reference'], besoin_reel, item['Date_Besoin'], s, item['Urgence'], maintenant))
-                else:
-                    st.warning(f"Stock suffisant pour {item['Reference']}")
-
-            conn.commit()
             st.session_state.panier = []
             st.success("Demandes envoyées avec succès !")
             st.rerun()
+
+# SUPERVISION GRAPHIQUE
+st.markdown("---")
+st.subheader(" Historique de Production (Journalier)")
+
+try:
+    df_chart = pd.read_sql_query("""
+        SELECT date(fin_production) as jour, COUNT(*) as total
+        FROM Demandes WHERE statut='Terminé'
+        GROUP BY jour ORDER BY jour
+    """, conn)
+
+    if not df_chart.empty:
+        st.line_chart(df_chart.set_index("jour"))
+    else:
+        st.info("Aucune donnée terminée pour le moment.")
+
+except Exception as e:
+    st.info("En attente de données pour l'affichage du graphique.")
+
+conn.close()
+# ENVOI
+if st.session_state.panier:
+    st.write("Liste en cours de préparation")
+    st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True)
+    
+    col_b1, col_b2 = st.columns(2)
+    with col_b1:
+        if st.button(" Annuler tout", use_container_width=True):
+            st.session_state.panier = []
+            st.rerun()
+    with col_b2:
+      import requests
+
+if st.button(" Envoyer au montage", type="primary", use_container_width=True):
+    for item in st.session_state.panier:
+        try:
+            response = requests.post(
+                "https://pfe-api-uju4.onrender.com/api/create_demande",
+                json={
+                    "reference": item["Reference"],
+                    "quantite": item["Quantite"],
+                    "date_besoin": item["Date_Besoin"],
+                    "shift": "B",   # نخدمو كان B توّة للتست
+                    "urgence": item["Urgence"]
+                },
+                timeout=10
+            )
+
+            st.write("Status code:", response.status_code)
+            st.write("Response:", response.text)
+
+        except Exception as e:
+            st.error(f"Erreur connexion API: {e}")
+
+    st.success("Demande envoyée via API !")
+    st.session_state.panier = []
+    st.rerun()
 
 # SUPERVISION GRAPHIQUE
 st.markdown("---")

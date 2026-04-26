@@ -7,7 +7,7 @@ const char* password = "4w3gshixthsz8h";
 
 // 🔥 MAINANT C'EST L'IP DE RENDER (serveur remote)
 const char* serverIP = "pfe-api-uju4.onrender.com";  // ← Serveur remote
-const int serverPort = 80;  // HTTP port, pas 8000
+const int serverPort = 443;  // HTTP port, pas 8000
 
 #define LED_GREEN 26
 #define LED_ORANGE 27
@@ -80,7 +80,7 @@ void setup() {
   pinMode(LED_RED, OUTPUT);
   pinMode(LIMIT_SWITCH, INPUT_PULLUP);
   pinMode(BTN_CANCEL, INPUT_PULLUP);
-  
+
   digitalWrite(LED_GREEN, LOW);
   digitalWrite(LED_ORANGE, LOW);
   digitalWrite(LED_RED, LOW);
@@ -103,7 +103,7 @@ void setup() {
   Serial.println(serverPort);
 
   // Connexion au serveur Render (websocket)
-  webSocket.begin(serverIP, serverPort, "/ws/" + shift);
+  webSocket.beginSSL(serverIP, 443, ("/ws/" + shift).c_str());
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }
