@@ -26,7 +26,8 @@ st_autorefresh(interval=5000, key="log_refresh")
 st.sidebar.title(" Tableau de Bord")
 
 # Déplace cette ligne ICI (avant les calculs)
-conn = sqlite3.connect(DB_PATH) 
+response = requests.get("https://pfe-api-uju4.onrender.com/api/full_data")
+data = response.json()["demandes"]
 
 # Maintenant 'conn' existe et peut être utilisé
 total = conn.execute("SELECT COUNT(*) FROM Demandes").fetchone()[0]
@@ -172,9 +173,6 @@ try:
 
 except Exception as e:
     st.error(f"Erreur de lecture du suivi: {e}")
-# PRÉPARATION DE COMMANDE (PANIER)
-#st.markdown("---")
-#st.subheader(" Nouvelle Demande de Production")
 
 # Initialize panier
 if "panier" not in st.session_state:

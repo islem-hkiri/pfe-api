@@ -1,12 +1,10 @@
 import streamlit as st
-import sqlite3
+import requests
 import pandas as pd
-import os
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
+API_URL = "https://pfe-api-uju4.onrender.com"
 st.set_page_config(page_title="Poste Soudure Ultrasons")
 
 st_autorefresh(interval=5000, key="main_refresh")
@@ -30,24 +28,29 @@ with st.sidebar:
         if st.button("Signaler Panne", key="signal_panne_btn"):
             if cause and id_op_saisie:
                 try:
-                    conn = sqlite3.connect(DB_PATH)
-                    conn.execute("""
-                        INSERT INTO Pannes (operateur_id, cause, debut_panne, statut)
-                        VALUES (?, ?, datetime('now'), '🔴 Ouvert')
-                    """, (id_op_saisie, cause))
-                    conn.commit()
-                    st.error("Panne signalee au superviseur !")
-                except Exception as e:
-                    st.error(f"Erreur: {str(e)}")
-                finally:
-                    conn.close()
-            else:
-                st.warning("Saisir ID operateur + cause")
+                    response = requests.get("https://pfe-api-uju4.onrender.com/api/full_data")
+                    data = response.json()["demandes"]
+                    if st.button("Signaler Panne", key="signal_panne_btn"):
+                        if cause and id_op_saisie:
+                            try:
+                                requests.post(
+                                    f"{API_URL}/api/signal_panne",
+                                    json={
+                                        "operateur_id": id_op_saisie,
+                                        "cause": cause
+                                    }
+                                )
+                                st.error("Panne signalée au superviseur !")
+                            except Exception as e:
+                                st.error(f"Erreur: {str(e)}")
+                        else:
+                            st.warning("Saisir ID operateur + cause")
 
     with st.expander("Historique"):
         conn = None
         try:
-            conn = sqlite3.connect(DB_PATH)
+            response = requests.get("https://pfe-api-uju4.onrender.com/api/full_data")
+            data = response.json()["demandes"]
             query = """
             SELECT 
                 p.module, 
@@ -74,11 +77,13 @@ with st.sidebar:
                 st.dataframe(df, use_container_width=True)
 
                 if st.button("Effacer l'historique", key="clear_history_btn"):
-                    conn.execute("""
-                    UPDATE Demandes 
-                    SET statut = 'Archive' 
-                    WHERE shift = ? AND statut = '✅ Terminé'
-                    """, (shift,))
+                    requests.post(
+                        f"{API_URL}/api/start_production",
+                        json={
+                            "demande_id": id_d,
+                            "operateur_id": id_op_saisie
+                        }
+                    )
                     conn.commit()
                     st.rerun()
             else:
@@ -93,7 +98,8 @@ st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 
 conn = None
 try:
-    conn = sqlite3.connect(DB_PATH)
+    response = requests.get("https://pfe-api-uju4.onrender.com/api/full_data")
+    data = response.json()["demandes"]
     query = """
     SELECT 
         d.id,
@@ -147,12 +153,12 @@ try:
                             SET quantite = quantite + ? 
                             WHERE reference = (SELECT reference FROM Demandes WHERE id=?)
                         """, (qte_a_ajouter, id_d))
-                        conn.execute("""
-                            UPDATE Demandes 
-                            SET statut='✅ Terminé', fin_production=datetime('now') 
-                            WHERE id=?
-                        """, (id_d,))
-                        conn.commit()
+                        requests.post(
+                            f"{API_URL}/api/terminer",
+                            json={
+                                "demande_id": id_d
+                            }  
+                        )
                         st.rerun()
                 
                 with cols[2]:
