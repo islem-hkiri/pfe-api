@@ -45,7 +45,7 @@ else:
 
     # Charger la bonne interface
     if st.session_state.role == "Logistique":
-        exec(open("logistique_app.py").read())
+        exec(open("logistique_app.py", encoding="utf-8").read())
 
     elif st.session_state.role == "Opérateur":
-        exec(open("operateur_app.py").read())
+        exec(open("operateur_app.py", encoding="utf-8").read())
