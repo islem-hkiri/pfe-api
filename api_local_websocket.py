@@ -85,6 +85,14 @@ async def send_status_to_card(shift: str):
 class ShiftRequest(BaseModel):
     shift: str
 
+
+class DemandeCreate(BaseModel):
+    reference: str
+    quantite: int
+    date_besoin: str
+    shift: str
+    urgence: str
+
 @app.websocket("/ws/{shift}")
 async def websocket_endpoint(websocket: WebSocket, shift: str):
     await manager.connect(websocket, shift)
@@ -361,7 +369,30 @@ def debug():
     data = cursor.fetchall()
     conn.close()
     return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
+@app.post("/api/create_demande")
+async def create_demande(data: DemandeCreate):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
 
+    cursor.execute("""
+        INSERT INTO Demandes 
+        (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
+        VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
+    """, (
+        data.reference,
+        data.quantite,
+        data.date_besoin,
+        data.shift,
+        data.urgence
+    ))
+
+    conn.commit()
+    conn.close()
+
+    # 🔥 Mise à jour temps réel vers ESP32
+    await send_status_to_card(data.shift)
+
+    return {"success": True}
 if __name__ == "__main__":
     import uvicorn
     print("="*50)
