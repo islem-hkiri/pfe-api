@@ -120,8 +120,135 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
                 
     except WebSocketDisconnect:
         manager.disconnect(shift)
-
-#c:\users\islem\Desktop\pfe-api
+def increment_sync(req: ShiftRequest):
+    print(f"➕ INCREMENT pour shift {req.shift}")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, quantite, reference 
+        FROM Demandes 
+        WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
+        LIMIT 1
+    """, (req.shift,))
+    
+    demande = cursor.fetchone()
+    
+    if not demande:
+        cursor.execute("""
+            SELECT id, quantite, reference 
+            FROM Demandes 
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+            ORDER BY id ASC LIMIT 1
+        """, (req.shift,))
+        
+        demande = cursor.fetchone()
+        
+        if not demande:
+            conn.close()
+            print("❌ Aucune demande en attente")
+            return {"success": False, "message": "Aucune demande en attente"}
+        
+        demande_id, Qté, ref = demande
+        
+        cursor.execute("""
+            UPDATE Demandes 
+            SET statut = '🟢En cours', debut_production = datetime('now') 
+            WHERE id = ?
+        """, (demande_id,))
+        
+        cursor.execute("""
+            INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+            VALUES (?, 0, ?, datetime('now'))
+            ON CONFLICT(shift) DO UPDATE 
+            SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
+        """, (req.shift, demande_id, demande_id))
+        
+        compteur = 1
+        print(f"🚀 Production démarrée: {ref} - Quantité à produire: {Qté}")
+        
+    else:
+        demande_id, Qté, ref = demande
+        cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
+        row = cursor.fetchone()
+        compteur = row[0] if row else 0
+        
+        if compteur >= Qté:
+            conn.close()
+            print(f"⚠️ Compteur déjà à {compteur}/{Qté} - Incrément ignoré")
+            return {"success": False, "message": f"Quantité maximale {Qté} atteinte"}
+        
+        compteur += 1
+        print(f"📊 Progression: {compteur}/{Qté}")
+    
+    cursor.execute("""
+        INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+        VALUES (?, ?, ?, datetime('now'))
+        ON CONFLICT(shift) DO UPDATE 
+        SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')
+    """, (req.shift, compteur, demande_id, compteur, demande_id))
+    
+    termine = (compteur >= Qté)
+    
+    if termine:
+        cursor.execute("""
+            UPDATE Demandes 
+            SET statut = '✅ Terminé', fin_production = datetime('now') 
+            WHERE id = ?
+        """, (demande_id,))
+        
+        cursor.execute("""
+            UPDATE Stock 
+            SET quantite = quantite + ? 
+            WHERE reference = ?
+        """, (Qté, ref))
+        
+        cursor.execute("""
+            UPDATE EtatMachine 
+            SET compteur_actuel = 0, demande_id = NULL
+            WHERE shift = ?
+        """, (req.shift,))
+        
+        print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
+        
+        cursor.execute("""
+            SELECT id, quantite, reference
+            FROM Demandes
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+            ORDER BY id ASC
+            LIMIT 1
+        """, (req.shift,))
+        next_demande = cursor.fetchone()
+        
+        if next_demande:
+            next_id, next_qte, next_ref = next_demande
+            
+            cursor.execute("""
+                UPDATE Demandes
+                SET statut = '🟢En cours',
+                    debut_production = datetime('now')
+                WHERE id = ?
+            """, (next_id,))
+            
+            cursor.execute("""
+                INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+                VALUES (?, 0, ?, datetime('now'))
+                ON CONFLICT(shift) DO UPDATE
+                SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
+            """, (req.shift, next_id, next_id))
+            
+            print(f"🔄 Auto-démarrage demande {next_ref} (Quantité: {next_qte})")
+            conn.commit()
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "success": True,
+        "compteur": compteur,
+        "Qté": Qté,
+        "termine": termine
+    }
         
         # ==========================================
         # 🔄 AUTO-DEMARRAGE prochaine demande
