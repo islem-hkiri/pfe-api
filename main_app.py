@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-st.set_page_config(page_title="Système Production", layout="wide")
+st.set_page_config(page_title="Système Production")
 
 API_BASE_URL = "https://pfe-api-uju4.onrender.com"
 
