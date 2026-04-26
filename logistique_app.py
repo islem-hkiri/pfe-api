@@ -173,8 +173,8 @@ try:
 except Exception as e:
     st.error(f"Erreur de lecture du suivi: {e}")
 # PRÉPARATION DE COMMANDE (PANIER)
-st.markdown("---")
-st.subheader(" Nouvelle Demande de Production")
+#st.markdown("---")
+#st.subheader(" Nouvelle Demande de Production")
 
 # Initialize panier
 if "panier" not in st.session_state:
