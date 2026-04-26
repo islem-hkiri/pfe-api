@@ -361,19 +361,19 @@ def debug():
     conn.close()
     return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
 
-@app.get("/api/add_direct")
-def add_direct():
-    import sqlite3
-    from datetime import datetime
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-        VALUES ('TEST_001', 10, date('now'), 'B', '🟠En attente', 'Normal', datetime('now'))
-    """)
-    conn.commit()
-    conn.close()
-    return {"message": "Demande TEST_001 ajoutée pour shift B! Allez teste la pédale maintenant!"}
+#@app.get("/api/add_direct")
+#def add_direct():
+ #   import sqlite3
+  #  from datetime import datetime
+   # conn = sqlite3.connect(DB_PATH)
+    #cursor = conn.cursor()
+    #cursor.execute("""
+     #   INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
+      #  VALUES ('TEST_001', 10, date('now'), 'B', '🟠En attente', 'Normal', datetime('now'))
+    #""")
+    #conn.commit()
+    #conn.close()
+    #return {"message": "Demande TEST_001 ajoutée pour shift B! Allez teste la pédale maintenant!"}
 
 if __name__ == "__main__":
     import uvicorn
