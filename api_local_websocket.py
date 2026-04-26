@@ -393,6 +393,34 @@ async def create_demande(data: DemandeCreate):
     await send_status_to_card(data.shift)
 
     return {"success": True}
+@app.get("/api/operateur_tasks")
+def operateur_tasks(shift: str = "B"):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, reference, quantite, statut, shift
+        FROM Demandes
+        WHERE shift = ?
+        AND statut NOT IN ('✅ Terminé','Archive')
+        ORDER BY id ASC
+    """, (shift,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return {
+        "tasks": [
+            {
+                "id": r[0],
+                "reference": r[1],
+                "quantite": r[2],
+                "statut": r[3],
+                "shift": r[4]
+            }
+            for r in rows
+        ]
+    }
 if __name__ == "__main__":
     import uvicorn
     print("="*50)
