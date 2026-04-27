@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlite3
 import os
-import asyncio
 
 app = FastAPI()
 
@@ -36,7 +35,6 @@ class ConnectionManager:
         if shift in self.active_connections:
             try:
                 await self.active_connections[shift].send_text(message)
-                print(f"📤 Envoyé à {shift}: {message}")
                 return True
             except:
                 self.disconnect(shift)
@@ -44,7 +42,6 @@ class ConnectionManager:
         return False
 
 manager = ConnectionManager()
-last_status_tasks = {}
 
 def get_status_from_db(shift: str):
     try:
@@ -53,14 +50,14 @@ def get_status_from_db(shift: str):
         
         cursor.execute("""
             SELECT id FROM Demandes
-            WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
+            WHERE shift = ? AND (statut LIKE '%En cours%')
             LIMIT 1
         """, (shift,))
         en_cours = cursor.fetchone()
         
         cursor.execute("""
             SELECT id FROM Demandes
-            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+            WHERE shift = ? AND (statut LIKE '%En attente%')
             LIMIT 1
         """, (shift,))
         attente = cursor.fetchone()
@@ -85,7 +82,6 @@ async def send_status_to_card(shift: str):
 class ShiftRequest(BaseModel):
     shift: str
 
-
 class DemandeCreate(BaseModel):
     reference: str
     quantite: int
@@ -105,237 +101,186 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
             
             if data == "ping":
                 await websocket.send_text("pong")
-                print("💓 Pong envoyé")
-            
             elif data == "get_status":
-                print("🔄 Demande de statut reçue")
                 await send_status_to_card(shift)
-            
             elif data == "increment":
-                print("➕ Traitement increment...")
                 result = increment_sync(ShiftRequest(shift=shift))
-                print(f"Résultat increment: {result}")
                 await send_status_to_card(shift)
-            
             elif data == "decrement":
-                print("➖ Traitement decrement...")
                 result = decrement_sync(ShiftRequest(shift=shift))
-                print(f"Résultat decrement: {result}")
                 await send_status_to_card(shift)
-            
-            else:
-                print(f"📝 Message non reconnu: {data}")
-                
     except WebSocketDisconnect:
         manager.disconnect(shift)
+
 def increment_sync(req: ShiftRequest):
     print(f"➕ INCREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT id, quantite, reference 
-        FROM Demandes 
-        WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
+        SELECT id, quantite, reference
+        FROM Demandes
+        WHERE shift = ? AND (statut LIKE '%En cours%')
         LIMIT 1
     """, (req.shift,))
-    
+
     demande = cursor.fetchone()
-    
+
     if not demande:
+        # ORDONNER PAR URGENCE: Critique > Urgent > Normal
         cursor.execute("""
-            SELECT id, quantite, reference 
-            FROM Demandes 
-            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
-            ORDER BY id ASC LIMIT 1
+            SELECT id, quantite, reference
+            FROM Demandes
+            WHERE shift = ? AND (statut LIKE '%En attente%')
+            ORDER BY
+                CASE urgence
+                    WHEN 'Critique' THEN 1
+                    WHEN 'Urgent' THEN 2
+                    WHEN 'Normal' THEN 3
+                    ELSE 4
+                END,
+                id ASC
+            LIMIT 1
         """, (req.shift,))
-        
+
         demande = cursor.fetchone()
-        
+
         if not demande:
             conn.close()
-            print("❌ Aucune demande en attente")
             return {"success": False, "message": "Aucune demande en attente"}
-        
+
         demande_id, Qté, ref = demande
-        
+
         cursor.execute("""
-            UPDATE Demandes 
-            SET statut = '🟢En cours', debut_production = datetime('now') 
+            UPDATE Demandes
+            SET statut = '🟢En cours', debut_production = datetime('now')
             WHERE id = ?
         """, (demande_id,))
-        
+
         cursor.execute("""
-            INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+            INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update)
             VALUES (?, 0, ?, datetime('now'))
-            ON CONFLICT(shift) DO UPDATE 
+            ON CONFLICT(shift) DO UPDATE
             SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
         """, (req.shift, demande_id, demande_id))
-        
+
         compteur = 1
-        print(f"🚀 Production démarrée: {ref} - Quantité à produire: {Qté}")
-        
+        print(f"🚀 Production démarrée: {ref} - Quantité: {Qté}")
+
     else:
         demande_id, Qté, ref = demande
-        cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
+        cursor.execute("SELECT compteur_actuel FROM `EtatMachine` WHERE shift = ?", (req.shift,))
         row = cursor.fetchone()
         compteur = row[0] if row else 0
         
         if compteur >= Qté:
             conn.close()
-            print(f"⚠️ Compteur déjà à {compteur}/{Qté} - Incrément ignoré")
             return {"success": False, "message": f"Quantité maximale {Qté} atteinte"}
         
         compteur += 1
         print(f"📊 Progression: {compteur}/{Qté}")
-    
+
     cursor.execute("""
-        INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+        INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update)
         VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(shift) DO UPDATE 
+        ON CONFLICT(shift) DO UPDATE
         SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')
     """, (req.shift, compteur, demande_id, compteur, demande_id))
-    
+
     termine = (compteur >= Qté)
-    
+
     if termine:
         cursor.execute("""
-            UPDATE Demandes 
-            SET statut = '✅ Terminé', fin_production = datetime('now') 
+            UPDATE Demandes
+            SET statut = '✅ Terminé', fin_production = datetime('now')
             WHERE id = ?
         """, (demande_id,))
-        
+
         cursor.execute("""
-            UPDATE Stock 
-            SET quantite = quantite + ? 
+            UPDATE Stock
+            SET quantite = quantite + ?
             WHERE reference = ?
         """, (Qté, ref))
-        
+
         cursor.execute("""
-            UPDATE EtatMachine 
+            UPDATE `EtatMachine`
             SET compteur_actuel = 0, demande_id = NULL
             WHERE shift = ?
         """, (req.shift,))
-        
+
         print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
-        
+
+        # AUTO-DEMARRAGE avec PRIORITÉ URGENCE
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes
-            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
-            ORDER BY id ASC
+            WHERE shift = ? AND (statut LIKE '%En attente%')
+            ORDER BY
+                CASE urgence
+                    WHEN 'Critique' THEN 1
+                    WHEN 'Urgent' THEN 2
+                    WHEN 'Normal' THEN 3
+                    ELSE 4
+                END,
+                id ASC
             LIMIT 1
         """, (req.shift,))
         next_demande = cursor.fetchone()
-        
+
         if next_demande:
             next_id, next_qte, next_ref = next_demande
-            
             cursor.execute("""
                 UPDATE Demandes
-                SET statut = '🟢En cours',
-                    debut_production = datetime('now')
+                SET statut = '🟢En cours', debut_production = datetime('now')
                 WHERE id = ?
             """, (next_id,))
-            
             cursor.execute("""
-                INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
+                INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update)
                 VALUES (?, 0, ?, datetime('now'))
                 ON CONFLICT(shift) DO UPDATE
                 SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
             """, (req.shift, next_id, next_id))
-            
-            print(f"🔄 Auto-démarrage demande {next_ref} (Quantité: {next_qte})")
+            print(f"🔄 Auto-démarrage: {next_ref} ({next_qte})")
             conn.commit()
-    
+
     conn.commit()
     conn.close()
-    
-    return {
-        "success": True,
-        "compteur": compteur,
-        "Qté": Qté,
-        "termine": termine
-    }
-        
-        # ==========================================
-        # 🔄 AUTO-DEMARRAGE prochaine demande
-        # ==========================================
-    cursor.execute("""
-            SELECT id, quantite, reference
-            FROM Demandes
-            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
-            ORDER BY id ASC
-            LIMIT 1
-        """, (req.shift,))
-    next_demande = cursor.fetchone()
-        
-    if next_demande:
-            next_id, next_qte, next_ref = next_demande
-            
-            cursor.execute("""
-                UPDATE Demandes
-                SET statut = '🟢En cours',
-                    debut_production = datetime('now')
-                WHERE id = ?
-            """, (next_id,))
-            
-            cursor.execute("""
-                INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
-                VALUES (?, 0, ?, datetime('now'))
-                ON CONFLICT(shift) DO UPDATE
-                SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
-            """, (req.shift, next_id, next_id))
-            
-            print(f"🔄 Auto-démarrage demande {next_ref} (Quantité: {next_qte})")
-            conn.commit()
-        # ==========================================
-    
-    conn.commit()
-    conn.close()
-    
-    return {
-        "success": True,
-        "compteur": compteur,
-        "Qté": Qté,
-        "termine": termine
-    }
+
+    return {"success": True, "compteur": compteur, "Qté": Qté, "termine": terme}
 
 def decrement_sync(req: ShiftRequest):
     print(f"➖ DECREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT id FROM Demandes 
-        WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours')
+        SELECT id FROM Demandes
+        WHERE shift = ? AND (statut LIKE '%En cours%')
         LIMIT 1
     """, (req.shift,))
-    
+
     en_cours = cursor.fetchone()
-    
+
     if not en_cours:
         conn.close()
-        print("❌ Aucune production en cours")
         return {"success": False, "message": "Aucune production en cours"}
-    
-    cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (req.shift,))
+
+    cursor.execute("SELECT compteur_actuel FROM `EtatMachine` WHERE shift = ?", (req.shift,))
     row = cursor.fetchone()
-    
+
     if row and row[0] > 0:
         nouveau = row[0] - 1
         cursor.execute("""
-            UPDATE EtatMachine 
-            SET compteur_actuel = ?, last_update = datetime('now') 
+            UPDATE `EtatMachine`
+            SET compteur_actuel = ?, last_update = datetime('now')
             WHERE shift = ?
         """, (nouveau, req.shift))
         conn.commit()
         conn.close()
-        print(f"📉 Compteur diminué à: {nouveau}")
+        print(f"📉 Compteur: {nouveau}")
         return {"success": True, "compteur": nouveau}
-    
+
     conn.close()
-    print("❌ Compteur déjà à zéro")
     return {"success": False, "message": "Compteur déjà à zéro"}
 
 @app.get("/")
@@ -344,10 +289,9 @@ def root():
 
 @app.get("/api/etat")
 async def get_etat(shift: str = "B"):
-        status = get_status_from_db(shift)
-        await send_status_to_card(shift)
-        return {"statut": status, "machine_disponible": (status == "Libre")}
-        
+    status = get_status_from_db(shift)
+    await send_status_to_card(shift)
+    return {"statut": status, "machine_disponible": (status == "Libre")}
 
 @app.post("/api/increment")
 async def increment(req: ShiftRequest):
@@ -369,30 +313,24 @@ def debug():
     data = cursor.fetchall()
     conn.close()
     return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
+
 @app.post("/api/create_demande")
 async def create_demande(data: DemandeCreate):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO Demandes 
+        INSERT INTO Demandes
         (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
         VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
-    """, (
-        data.reference,
-        data.quantite,
-        data.date_besoin,
-        data.shift,
-        data.urgence
-    ))
+    """, (data.reference, data.quantite, data.date_besoin, data.shift, data.urgence))
 
     conn.commit()
     conn.close()
-
-    # 🔥 Mise à jour temps réel vers ESP32
     await send_status_to_card(data.shift)
 
     return {"success": True}
+
 @app.get("/api/operateur_tasks")
 def operateur_tasks(shift: str = "B"):
     conn = sqlite3.connect(DB_PATH)
@@ -402,30 +340,20 @@ def operateur_tasks(shift: str = "B"):
         SELECT id, reference, quantite, statut, shift
         FROM Demandes
         WHERE shift = ?
-        AND statut NOT IN ('✅ Terminé','Archive')
+        AND statut NOT LIKE '%Terminé%'
         ORDER BY id ASC
     """, (shift,))
 
     rows = cursor.fetchall()
     conn.close()
 
-    return {
-        "tasks": [
-            {
-                "id": r[0],
-                "reference": r[1],
-                "quantite": r[2],
-                "statut": r[3],
-                "shift": r[4]
-            }
-            for r in rows
-        ]
-    }
+    return {"tasks": [{"id": r[0], "reference": r[1], "quantite": r[2], "statut": r[3], "shift": r[4]} for r in rows]}
+
 if __name__ == "__main__":
     import uvicorn
     print("="*50)
     print("🚀 SERVEUR DÉMARRÉ")
-    print(f"📡 HTTP: http://localhost:8000")
-    print(f"🔌 WebSocket: ws://localhost:8000/ws/{{shift}}")
+    print("📡 HTTP: http://localhost:8000")
+    print("🔌 WebSocket: ws://localhost:8000/ws/{shift}")
     print("="*50)
     uvicorn.run(app, host="0.0.0.0", port=8000)

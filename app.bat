@@ -1,2 +1,0 @@
-python api_local_websocket.py
-pause

@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 import os
 from streamlit_autorefresh import st_autorefresh
-from database_v2 import init_db # importaion des données de la base 
+from database_v2 import init_db
 
 # Configuration
 st.set_page_config(page_title="Logistique - Supervision")
@@ -21,28 +21,25 @@ if not os.path.exists(DB_PATH):
 st_autorefresh(interval=5000, key="log_refresh")
 
 # SIDEBAR & KPI
-
-# --- POSITION CORRIGÉE ---
 st.sidebar.title(" Tableau de Bord")
 
 # Déplace cette ligne ICI (avant les calculs)
 conn = sqlite3.connect(DB_PATH) 
 
 # Maintenant 'conn' existe et peut être utilisé
-total = conn.execute("SELECT COUNT(*) FROM Demandes").fetchone()[0]
-termine = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut='Terminé'").fetchone()[0]
+total = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut NOT LIKE '%Archivé%'").fetchone()[0]
+termine = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut LIKE '%Terminé%'").fetchone()[0]
 
 st.sidebar.metric("Total demandes", total)
 st.sidebar.metric("Terminées", termine)
 
 #  KPI Temps moyen
-# --- SECTION KPI (Ligne 55 environ) ---
-df_time = pd.read_sql_query("SELECT (strftime('%s', fin_production) - strftime('%s', debut_production)) as duree FROM Demandes WHERE statut='Terminé'", conn)
+df_time = pd.read_sql_query("SELECT (strftime('%s', fin_production) - strftime('%s', debut_production)) as duree FROM Demandes WHERE statut LIKE '%Terminé%'", conn)
 
 if not df_time.empty and pd.notna(df_time['duree'].mean()):
     st.sidebar.metric("Temps moyen (s)", int(df_time['duree'].mean()))
 else:
-    st.sidebar.metric("Temps moyen (s)", "0") # Ma3adech yeplanty hna
+    st.sidebar.metric("Temps moyen (s)", "0")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader(" Performance (KPI)")
@@ -51,8 +48,8 @@ st.sidebar.subheader(" Performance (KPI)")
 TEMPS_SHIFT_SEC = 8 * 3600 
 
 df_occ = pd.read_sql_query("""
-SELECT SUM(strftime('%s', fin_production) - strftime('%s', debut_production)) as total_prod
-FROM Demandes WHERE statut='Terminé' AND date(fin_production) = date('now')
+    SELECT SUM(strftime('%s', fin_production) - strftime('%s', debut_production)) as total_prod
+    FROM Demandes WHERE statut LIKE '%Terminé%' AND date(fin_production) = date('now')
 """, conn)
 
 if not df_occ.empty and df_occ['total_prod'].iloc[0] is not None:
@@ -70,8 +67,8 @@ else:
 
 # KPI urgence
 df_urg = pd.read_sql_query("""
-SELECT urgence, COUNT(*) as total
-FROM Demandes GROUP BY urgence
+    SELECT urgence, COUNT(*) as total
+    FROM Demandes WHERE statut NOT LIKE '%Archivé%' GROUP BY urgence
 """, conn)
 
 if not df_urg.empty:
@@ -111,13 +108,10 @@ if st.sidebar.button("Déconnexion", use_container_width=True):
     st.rerun()
 
 # INTERFACE PRINCIPALE
-st.title(" Demandes (Poste Soudure)")
-# --- SECTION ALERTES PANNES (Notification du Message Opérateur) ---
+st.title("📋 Demandes (Poste Soudure)")
 st.subheader(" Alertes de Panne en Temps Réel")
 
 try:
-    #lire les pannes envoyé par l'operateur
-    # On sélectionne la cause (le message) et l'ID de l'opérateur
     df_alertes = pd.read_sql_query("""
         SELECT operateur_id, cause, debut_panne, statut 
         FROM Pannes 
@@ -127,7 +121,6 @@ try:
 
     if not df_alertes.empty:
         for index, row in df_alertes.iterrows():
-            # affichage de message de la panne envoyé
             st.error(f"""
                 **NOUVELLE ALERTE REÇUE**
                 * **Message de l'Opérateur :** {row['cause']}
@@ -135,7 +128,6 @@ try:
                 * **Heure :** {row['debut_panne']}
             """)
         
-        # Bouton pour effacer l'alerte une fois traitée
         if st.button(" Confirmer la réception / Traiter"):
             conn.execute("UPDATE Pannes SET statut = 'Résolu', fin_panne = datetime('now') WHERE statut = '🔴 Ouvert'")
             conn.commit()
@@ -145,8 +137,8 @@ try:
         st.success(" Aucune panne signalée pour le moment.")
 
 except Exception as e:
-    # Si la table est vide ou n'existe pas encore
     st.info("Système d'alertes prêt (en attente de messages...).")
+
 # SUIVI TEMPS RÉEL
 st.subheader(" Suivi des fabrications en temps réel")
 
@@ -172,6 +164,7 @@ try:
 
 except Exception as e:
     st.error(f"Erreur de lecture du suivi: {e}")
+
 # Initialize panier
 if "panier" not in st.session_state:
     st.session_state.panier = []
@@ -205,7 +198,19 @@ with st.container():
 if st.session_state.panier:
     st.write("Liste en cours de préparation")
     st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True)
-    
+
+    # Afficher les stats des 2 shifts pour choisir
+    col_stat_a, col_stat_b = st.columns(2)
+    with col_stat_a:
+        nb_a = conn.execute("SELECT COUNT(*) FROM Demandes WHERE shift='A' AND statut NOT LIKE '%Terminé%'").fetchone()[0]
+        st.info(f"Shift A: {nb_a} demandes en cours")
+    with col_stat_b:
+        nb_b = conn.execute("SELECT COUNT(*) FROM Demandes WHERE shift='B' AND statut NOT LIKE '%Terminé%'").fetchone()[0]
+        st.info(f"Shift B: {nb_b} demandes en cours")
+
+    # Selector pour choisir le shift
+    shift_choisi = st.selectbox("Sélectionner le shift destinataire", ["A", "B"])
+
     col_b1, col_b2 = st.columns(2)
     with col_b1:
         if st.button(" Annuler tout", use_container_width=True):
@@ -214,28 +219,29 @@ if st.session_state.panier:
     with col_b2:
         if st.button(" Envoyer au montage", type="primary", use_container_width=True):
             import requests
-            
+
+            success_count = 0
             for item in st.session_state.panier:
-                for s in ['A', 'B']:
-                    try:
-                        response = requests.post(
-                            "https://pfe-api-uju4.onrender.com/api/create_demande",
-                            json={
-                                "reference": item["Reference"],
-                                "quantite": item["Quantite"],
-                                "date_besoin": item["Date_Besoin"],
-                                "shift": s,
-                                "urgence": item["Urgence"]
-                            },
-                            timeout=10
-                        )
-                    except Exception as e:
-                        st.error(f"Erreur API: {e}")
+                try:
+                    response = requests.post(
+                        "https://pfe-api-uju4.onrender.com/api/create_demande",
+                        json={
+                            "reference": item["Reference"],
+                            "quantite": item["Quantite"],
+                            "date_besoin": item["Date_Besoin"],
+                            "shift": shift_choisi,
+                            "urgence": item["Urgence"]
+                        },
+                        timeout=10
+                    )
+                    if response.status_code == 200:
+                        success_count += 1
+                except Exception as e:
+                    st.error(f"Erreur API: {e}")
 
             st.session_state.panier = []
-            st.success("Demandes envoyées avec succès !")
+            st.success(f"{success_count} demande(s) envoyée(s) au Shift {shift_choisi} avec succès !")
             st.rerun()
-
 
 # SUPERVISION GRAPHIQUE
 st.markdown("---")
@@ -244,7 +250,7 @@ st.subheader("📊 Historique de Production (Journalier)")
 try:
     df_chart = pd.read_sql_query("""
         SELECT date(fin_production) as jour, COUNT(*) as total
-        FROM Demandes WHERE statut='Terminé'
+        FROM Demandes WHERE statut LIKE '%Terminé%'
         GROUP BY jour ORDER BY jour
     """, conn)
 
