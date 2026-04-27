@@ -148,7 +148,7 @@ except Exception as e:
     # Si la table est vide ou n'existe pas encore
     st.info("Système d'alertes prêt (en attente de messages...).")
 # SUIVI TEMPS RÉEL
-#st.subheader(" Suivi des fabrications en temps réel")
+st.subheader(" Suivi des fabrications en temps réel")
 
 try:
     query_suivi = """
@@ -172,10 +172,6 @@ try:
 
 except Exception as e:
     st.error(f"Erreur de lecture du suivi: {e}")
-# PRÉPARATION DE COMMANDE (PANIER)
-st.markdown("---")
-st.subheader(" Nouvelle Demande de Production")
-
 # Initialize panier
 if "panier" not in st.session_state:
     st.session_state.panier = []
@@ -240,63 +236,6 @@ if st.session_state.panier:
             st.success("Demandes envoyées avec succès !")
             st.rerun()
 
-# SUPERVISION GRAPHIQUE
-#st.markdown("---")
-#st.subheader(" Historique de Production (Journalier)")
-
-#try:
- #   df_chart = pd.read_sql_query("""
-  #      SELECT date(fin_production) as jour, COUNT(*) as total
-   #     FROM Demandes WHERE statut='Terminé'
-    #    GROUP BY jour ORDER BY jour
-    #""", conn)
-
-    #if not df_chart.empty:
-     #   st.line_chart(df_chart.set_index("jour"))
-    #else:
-     #   st.info("Aucune donnée terminée pour le moment.")
-
-#except Exception as e:
- #   st.info("En attente de données pour l'affichage du graphique.")
-
-#conn.close()
-# ENVOI
-#if st.session_state.panier:
- #   st.write("Liste en cours de préparation")
-  #  st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True)
-    
-   # col_b1, col_b2 = st.columns(2)
-    #with col_b1:
-     #   if st.button(" Annuler tout", use_container_width=True):
-      #      st.session_state.panier = []
-       #     st.rerun()
-    #with col_b2:
-     # import requests
-
-#if st.button(" Envoyer au montage", type="primary", use_container_width=True):
- #   for item in st.session_state.panier:
-  #      try:
-   #         response = requests.post(
-    #            "https://pfe-api-uju4.onrender.com/api/create_demande",
-     #           json={
-      #              "reference": item["Reference"],
-       #             "quantite": item["Quantite"],
-        #            "date_besoin": item["Date_Besoin"],
-         #           "shift": "B",   # نخدمو كان B توّة للتست
-          #          "urgence": item["Urgence"]
-           #     },
-            #    timeout=10
-            #)
-
-         #   st.write("Status code:", response.status_code)
-          #  st.write("Response:", response.text)
-
-        #except Exception as e:
-         #   st.error(f"Erreur connexion API: {e}")
-
-    #st.success("Demande envoyée via API !")
-   # st.session_state.panier = []
-    #st.rerun()
 
 # SUPERVISION GRAPHIQUE
 st.markdown("---")
