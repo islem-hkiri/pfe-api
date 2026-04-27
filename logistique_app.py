@@ -190,77 +190,95 @@ except Exception as e:
     st.info("Système d'alertes prêt (en attente de messages...).")
 
 # =============================================
-# 1️⃣ SUIVI TEMPS RÉEL (AVANT NOUVELLE DEMANDE)
+# 1️⃣ SUIVI TEMPS RÉEL (DEPUIS API)
 # =============================================
 st.markdown("---")
 st.subheader("Suivi des fabrications en temps réel")
 
 try:
-    query_suivi = """
-    SELECT id, reference, quantite, urgence, statut, operateur_id, heure_demande
-    FROM Demandes
-    WHERE statut LIKE '%En attente%' OR statut LIKE '%En cours%'
-    ORDER BY 
-        CASE urgence
-            WHEN 'Critique' THEN 1
-            WHEN 'Urgent' THEN 2
-            WHEN 'Normal' THEN 3
-            ELSE 4
-        END,
-        CASE 
-            WHEN statut LIKE '%En cours%' THEN 1 
-            ELSE 2 
-        END, 
-        id DESC
-    """
-    encours_data = conn.execute(query_suivi).fetchall()
+    # 🔥 RÉCUPÉRATION DEPUIS L'API
+    response_tasks = requests.get("https://pfe-api-uju4.onrender.com/api/full_data", timeout=10)
+    
+    if response_tasks.status_code == 200:
+        api_data = response_tasks.json()
+        
+        if isinstance(api_data, dict) and "demandes" in api_data:
+            all_tasks = api_data["demandes"]
+            
+            # Filtrer uniquement En attente et En cours
+            encours_data = [
+                task for task in all_tasks 
+                if "En attente" in task.get("statut", "") or "En cours" in task.get("statut", "")
+            ]
+            
+            if encours_data:
+                # Conversion en DataFrame
+                df_suivi = pd.DataFrame(encours_data)
+                
+                # Sélection et renommage des colonnes
+                colonnes_affichees = ["id", "reference", "quantite", "urgence", "statut", "operateur_id", "heure_demande"]
+                colonnes_disponibles = [col for col in colonnes_affichees if col in df_suivi.columns]
+                
+                df_suivi = df_suivi[colonnes_disponibles]
+                df_suivi.columns = ["ID", "Référence", "Qté", "Urgence", "État", "Opérateur", "Date demande"][:len(colonnes_disponibles)]
+                
+                # Nettoyage des valeurs None
+                if "Opérateur" in df_suivi.columns:
+                    df_suivi["Opérateur"] = df_suivi["Opérateur"].fillna("Non assigné")
 
-    if encours_data:
-        df_suivi = pd.DataFrame(encours_data, columns=["ID", "Référence", "Qté", "Urgence", "État", "Opérateur", "Date demande"])
+                # Formatage statut avec emojis
+                def format_etat(etat):
+                    if "En cours" in str(etat):
+                        return "🟢 En cours"
+                    elif "En attente" in str(etat):
+                        return "🟠 En attente"
+                    else:
+                        return etat
 
-        # Nettoyage des valeurs None
-        df_suivi["Opérateur"] = df_suivi["Opérateur"].fillna("Non assigné")
+                if "État" in df_suivi.columns:
+                    df_suivi["État"] = df_suivi["État"].apply(format_etat)
 
-        # Formatage statut avec emojis
-        def format_etat(etat):
-            if "En cours" in str(etat):
-                return "🟢 En cours"
-            elif "En attente" in str(etat):
-                return "🟠 En attente"
+                # Tri par urgence et statut
+                ordre_urgence = {"Critique": 1, "Urgent": 2, "Normal": 3}
+                df_suivi["_ordre_urgence"] = df_suivi["Urgence"].map(ordre_urgence).fillna(4)
+                df_suivi["_ordre_statut"] = df_suivi["État"].apply(lambda x: 1 if "En cours" in str(x) else 2)
+                
+                df_suivi = df_suivi.sort_values(["_ordre_urgence", "_ordre_statut", "ID"], ascending=[True, True, False])
+                df_suivi = df_suivi.drop(columns=["_ordre_urgence", "_ordre_statut"])
+
+                # Couleurs selon urgence
+                def color_urgence(row):
+                    if row.get('Urgence') == 'Critique':
+                        return ['background-color: #ffcccc; color: black'] * len(row)
+                    elif row.get('Urgence') == 'Urgent':
+                        return ['background-color: #fff4cc; color: black'] * len(row)
+                    else:
+                        return ['background-color: #e6ffe6; color: black'] * len(row)
+
+                st.dataframe(
+                    df_suivi.style.apply(color_urgence, axis=1),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # Compteurs résumé
+                nb_en_cours = df_suivi["État"].str.contains("En cours", na=False).sum()
+                nb_en_attente = df_suivi["État"].str.contains("En attente", na=False).sum()
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("📦 Total actif", len(encours_data))
+                col2.metric("🟢 En cours", nb_en_cours)
+                col3.metric("🟠 En attente", nb_en_attente)
+
             else:
-                return etat
-
-        df_suivi["État"] = df_suivi["État"].apply(format_etat)
-
-        # Couleurs selon urgence
-        def color_urgence(row):
-            if row['Urgence'] == 'Critique':
-                return ['background-color: #ffcccc; color: black'] * len(row)
-            elif row['Urgence'] == 'Urgent':
-                return ['background-color: #fff4cc; color: black'] * len(row)
-            else:
-                return ['background-color: #e6ffe6; color: black'] * len(row)
-
-        st.dataframe(
-            df_suivi.style.apply(color_urgence, axis=1),
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # Compteurs résumé
-        nb_en_cours = df_suivi["État"].str.contains("En cours").sum()
-        nb_en_attente = df_suivi["État"].str.contains("En attente").sum()
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total actif", len(encours_data))
-        col2.metric("🟢 En cours", nb_en_cours)
-        col3.metric("🟠 En attente", nb_en_attente)
-
+                st.info("✅ Aucune production en attente ou en cours.")
+        else:
+            st.warning("⚠️ Format de données API incorrect")
     else:
-        st.info("Aucune production en attente ou en cours.")
+        st.error(f"❌ Erreur API : {response_tasks.status_code}")
 
 except Exception as e:
-    st.error(f"Erreur de lecture du suivi: {e}")
+    st.error(f"❌ Erreur de connexion API: {e}")
 
 # =============================================
 # 2️⃣ NOUVELLE DEMANDE DE PRODUCTION (APRÈS)
