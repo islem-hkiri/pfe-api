@@ -29,7 +29,6 @@ class ConnectionManager:
     def disconnect(self, shift: str):
         if shift in self.active_connections:
             del self.active_connections[shift]
-            print(f"❌ Carte {shift} déconnectée")
     
     async def send_message(self, shift: str, message: str):
         if shift in self.active_connections:
@@ -48,18 +47,10 @@ def get_status_from_db(shift: str):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        cursor.execute("""
-            SELECT id FROM Demandes
-            WHERE shift = ? AND (statut LIKE '%En cours%')
-            LIMIT 1
-        """, (shift,))
+        cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND (statut LIKE '%En cours%') LIMIT 1", (shift,))
         en_cours = cursor.fetchone()
         
-        cursor.execute("""
-            SELECT id FROM Demandes
-            WHERE shift = ? AND (statut LIKE '%En attente%')
-            LIMIT 1
-        """, (shift,))
+        cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND (statut LIKE '%En attente%') LIMIT 1", (shift,))
         attente = cursor.fetchone()
         
         conn.close()
@@ -70,8 +61,7 @@ def get_status_from_db(shift: str):
             return "🟠En attente"
         else:
             return "Libre"
-    except Exception as e:
-        print(f"❌ Erreur DB: {e}")
+    except:
         return "Libre"
 
 async def send_status_to_card(shift: str):
@@ -97,52 +87,34 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
     try:
         while True:
             data = await websocket.receive_text()
-            print(f"📨 Reçu de {shift}: {data}")
             
             if data == "ping":
                 await websocket.send_text("pong")
             elif data == "get_status":
                 await send_status_to_card(shift)
             elif data == "increment":
-                result = increment_sync(ShiftRequest(shift=shift))
+                increment_sync(ShiftRequest(shift=shift))
                 await send_status_to_card(shift)
             elif data == "decrement":
-                result = decrement_sync(ShiftRequest(shift=shift))
+                decrement_sync(ShiftRequest(shift=shift))
                 await send_status_to_card(shift)
     except WebSocketDisconnect:
         manager.disconnect(shift)
 
 def increment_sync(req: ShiftRequest):
-    print(f"➕ INCREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id, quantite, reference
-        FROM Demandes
-        WHERE shift = ? AND (statut LIKE '%En cours%')
-        LIMIT 1
-    """, (req.shift,))
-
+    cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut LIKE '%En cours%') LIMIT 1", (req.shift,))
     demande = cursor.fetchone()
 
     if not demande:
         # ORDONNER PAR URGENCE: Critique > Urgent > Normal
         cursor.execute("""
-            SELECT id, quantite, reference
-            FROM Demandes
+            SELECT id, quantite, reference FROM Demandes
             WHERE shift = ? AND (statut LIKE '%En attente%')
-            ORDER BY
-                CASE urgence
-                    WHEN 'Critique' THEN 1
-                    WHEN 'Urgent' THEN 2
-                    WHEN 'Normal' THEN 3
-                    ELSE 4
-                END,
-                id ASC
-            LIMIT 1
+            ORDER BY CASE urgence WHEN 'Critique' THEN 1 WHEN 'Urgent' THEN 2 WHEN 'Normal' THEN 3 ELSE 4 END, id ASC LIMIT 1
         """, (req.shift,))
-
         demande = cursor.fetchone()
 
         if not demande:
@@ -151,21 +123,11 @@ def increment_sync(req: ShiftRequest):
 
         demande_id, Qté, ref = demande
 
-        cursor.execute("""
-            UPDATE Demandes
-            SET statut = '🟢En cours', debut_production = datetime('now')
-            WHERE id = ?
-        """, (demande_id,))
+        cursor.execute("UPDATE Demandes SET statut = '🟢En cours', debut_production = datetime('now') WHERE id = ?", (demande_id,))
 
-        cursor.execute("""
-            INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update)
-            VALUES (?, 0, ?, datetime('now'))
-            ON CONFLICT(shift) DO UPDATE
-            SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
-        """, (req.shift, demande_id, demande_id))
+        cursor.execute("INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update) VALUES (?, 0, ?, datetime('now')) ON CONFLICT(shift) DO UPDATE SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')", (req.shift, demande_id, demande_id))
 
         compteur = 1
-        print(f"🚀 Production démarrée: {ref} - Quantité: {Qté}")
 
     else:
         demande_id, Qté, ref = demande
@@ -178,87 +140,39 @@ def increment_sync(req: ShiftRequest):
             return {"success": False, "message": f"Quantité maximale {Qté} atteinte"}
         
         compteur += 1
-        print(f"📊 Progression: {compteur}/{Qté}")
 
-    cursor.execute("""
-        INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update)
-        VALUES (?, ?, ?, datetime('now'))
-        ON CONFLICT(shift) DO UPDATE
-        SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')
-    """, (req.shift, compteur, demande_id, compteur, demande_id))
+    cursor.execute("INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(shift) DO UPDATE SET compteur_actuel = ?, demande_id = ?, last_update = datetime('now')", (req.shift, compteur, demande_id, compteur, demande_id))
 
     termine = (compteur >= Qté)
 
-    if termine:
-        cursor.execute("""
-            UPDATE Demandes
-            SET statut = '✅ Terminé', fin_production = datetime('now')
-            WHERE id = ?
-        """, (demande_id,))
-
-        cursor.execute("""
-            UPDATE Stock
-            SET quantite = quantite + ?
-            WHERE reference = ?
-        """, (Qté, ref))
-
-        cursor.execute("""
-            UPDATE `EtatMachine`
-            SET compteur_actuel = 0, demande_id = NULL
-            WHERE shift = ?
-        """, (req.shift,))
-
-        print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
+    if terme:
+        cursor.execute("UPDATE Demandes SET statut = '✅ Terminé', fin_production = datetime('now') WHERE id = ?", (demande_id,))
+        cursor.execute("UPDATE Stock SET quantite = quantite + ? WHERE reference = ?", (Qté, ref))
+        cursor.execute("UPDATE `EtatMachine` SET compteur_actuel = 0, demande_id = NULL WHERE shift = ?", (req.shift,))
 
         # AUTO-DEMARRAGE avec PRIORITÉ URGENCE
         cursor.execute("""
-            SELECT id, quantite, reference
-            FROM Demandes
+            SELECT id, quantite, reference FROM Demandes
             WHERE shift = ? AND (statut LIKE '%En attente%')
-            ORDER BY
-                CASE urgence
-                    WHEN 'Critique' THEN 1
-                    WHEN 'Urgent' THEN 2
-                    WHEN 'Normal' THEN 3
-                    ELSE 4
-                END,
-                id ASC
-            LIMIT 1
+            ORDER BY CASE urgence WHEN 'Critique' THEN 1 WHEN 'Urgent' THEN 2 WHEN 'Normal' THEN 3 ELSE 4 END, id ASC LIMIT 1
         """, (req.shift,))
         next_demande = cursor.fetchone()
 
         if next_demande:
             next_id, next_qte, next_ref = next_demande
-            cursor.execute("""
-                UPDATE Demandes
-                SET statut = '🟢En cours', debut_production = datetime('now')
-                WHERE id = ?
-            """, (next_id,))
-            cursor.execute("""
-                INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update)
-                VALUES (?, 0, ?, datetime('now'))
-                ON CONFLICT(shift) DO UPDATE
-                SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
-            """, (req.shift, next_id, next_id))
-            print(f"🔄 Auto-démarrage: {next_ref} ({next_qte})")
+            cursor.execute("UPDATE Demandes SET statut = '🟢En cours', debut_production = datetime('now') WHERE id = ?", (next_id,))
+            cursor.execute("INSERT INTO `EtatMachine` (shift, compteur_actuel, demande_id, last_update) VALUES (?, 0, ?, datetime('now')) ON CONFLICT(shift) DO UPDATE SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')", (req.shift, next_id, next_id))
             conn.commit()
 
     conn.commit()
     conn.close()
-
     return {"success": True, "compteur": compteur, "Qté": Qté, "termine": terme}
 
 def decrement_sync(req: ShiftRequest):
-    print(f"➖ DECREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT id FROM Demandes
-        WHERE shift = ? AND (statut LIKE '%En cours%')
-        LIMIT 1
-    """, (req.shift,))
-
+    cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND (statut LIKE '%En cours%') LIMIT 1", (req.shift,))
     en_cours = cursor.fetchone()
 
     if not en_cours:
@@ -270,14 +184,9 @@ def decrement_sync(req: ShiftRequest):
 
     if row and row[0] > 0:
         nouveau = row[0] - 1
-        cursor.execute("""
-            UPDATE `EtatMachine`
-            SET compteur_actuel = ?, last_update = datetime('now')
-            WHERE shift = ?
-        """, (nouveau, req.shift))
+        cursor.execute("UPDATE `EtatMachine` SET compteur_actuel = ?, last_update = datetime('now') WHERE shift = ?", (nouveau, req.shift))
         conn.commit()
         conn.close()
-        print(f"📉 Compteur: {nouveau}")
         return {"success": True, "compteur": nouveau}
 
     conn.close()
@@ -285,7 +194,7 @@ def decrement_sync(req: ShiftRequest):
 
 @app.get("/")
 def root():
-    return {"message": "API PFE avec WebSocket"}
+    return {"message": "API PFE"}
 
 @app.get("/api/etat")
 async def get_etat(shift: str = "B"):
@@ -295,15 +204,11 @@ async def get_etat(shift: str = "B"):
 
 @app.post("/api/increment")
 async def increment(req: ShiftRequest):
-    result = increment_sync(req)
-    await send_status_to_card(req.shift)
-    return result
+    return increment_sync(req)
 
 @app.post("/api/decrement")
 async def decrement(req: ShiftRequest):
-    result = decrement_sync(req)
-    await send_status_to_card(req.shift)
-    return result
+    return decrement_sync(req)
 
 @app.get("/api/debug")
 def debug():
@@ -318,42 +223,22 @@ def debug():
 async def create_demande(data: DemandeCreate):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO Demandes
-        (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-        VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
-    """, (data.reference, data.quantite, data.date_besoin, data.shift, data.urgence))
-
+    cursor.execute("INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande) VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))", (data.reference, data.quantite, data.date_besoin, data.shift, data.urgence))
     conn.commit()
     conn.close()
     await send_status_to_card(data.shift)
-
     return {"success": True}
 
 @app.get("/api/operateur_tasks")
 def operateur_tasks(shift: str = "B"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id, reference, quantite, statut, shift
-        FROM Demandes
-        WHERE shift = ?
-        AND statut NOT LIKE '%Terminé%'
-        ORDER BY id ASC
-    """, (shift,))
-
+    cursor.execute("SELECT id, reference, quantite, statut, shift FROM Demandes WHERE shift = ? AND statut NOT LIKE '%Terminé%' ORDER BY id ASC", (shift,))
     rows = cursor.fetchall()
     conn.close()
-
     return {"tasks": [{"id": r[0], "reference": r[1], "quantite": r[2], "statut": r[3], "shift": r[4]} for r in rows]}
 
 if __name__ == "__main__":
     import uvicorn
-    print("="*50)
     print("🚀 SERVEUR DÉMARRÉ")
-    print("📡 HTTP: http://localhost:8000")
-    print("🔌 WebSocket: ws://localhost:8000/ws/{shift}")
-    print("="*50)
     uvicorn.run(app, host="0.0.0.0", port=8000)
