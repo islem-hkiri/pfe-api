@@ -21,7 +21,7 @@ if not os.path.exists(DB_PATH):
 # Connexion à la base de données
 conn = sqlite3.connect(DB_PATH)
 
-# AUTO REFRESH
+# AUTO REFRESH (كل 5 ثواني)
 st_autorefresh(interval=5000, key="log_refresh")
 
 # SIDEBAR & KPI
@@ -174,11 +174,14 @@ try:
 except Exception as e:
     st.info("Système d'alertes prêt (en attente de messages...).")
 
-# SUIVI TEMPS RÉEL
+# =============================================
+# 🔥 SUIVI TEMPS RÉEL (DEPUIS API - 100% EN LIGNE)
+# =============================================
 st.markdown("---")
 st.subheader("🔄 Suivi des fabrications en temps réel")
 
 try:
+    # 🔥 RÉCUPÉRATION DEPUIS L'API
     response_tasks = requests.get("https://pfe-api-uju4.onrender.com/api/full_data", timeout=10)
     
     if response_tasks.status_code == 200:
@@ -187,6 +190,7 @@ try:
         if isinstance(api_data, dict) and "demandes" in api_data:
             all_tasks = api_data["demandes"]
             
+            # Filtrer uniquement En attente et En cours
             encours_data = [
                 task for task in all_tasks 
                 if "En attente" in task.get("statut", "") or "En cours" in task.get("statut", "")
@@ -258,7 +262,9 @@ except Exception as e:
 if "panier" not in st.session_state:
     st.session_state.panier = []
 
-# NOUVELLE DEMANDE DE PRODUCTION
+# =============================================
+# 🔥 NOUVELLE DEMANDE DE PRODUCTION
+# =============================================
 st.markdown("---")
 st.subheader("📝 Nouvelle Demande de Production")
 
@@ -292,26 +298,30 @@ with st.container():
         st.success(f"✅ {ref_choisie} ajouté à la liste !")
         st.rerun()
 
-# AFFICHAGE PANIER + ENVOI
+# =============================================
+# 🔥 AFFICHAGE PANIER + ENVOI VERS API
+# =============================================
 if st.session_state.panier:
     st.write("📋 **Liste en cours de préparation**")
     st.dataframe(pd.DataFrame(st.session_state.panier), use_container_width=True, hide_index=True)
     
     col_b1, col_b2 = st.columns(2)
+    
     with col_b1:
         if st.button("🗑️ Annuler tout", use_container_width=True):
             st.session_state.panier = []
             st.rerun()
+    
     with col_b2:
         if st.button("📤 Envoyer au montage", type="primary", use_container_width=True):
             success_count = 0
             error_count = 0
             
+            # 🔥 ENVOI VERS L'API
             for item in st.session_state.panier:
                 try:
-                    # 🔥 CORRECTION: Utiliser /demandes au lieu de /create_demande
                     response = requests.post(
-                        "https://pfe-api-uju4.onrender.com/demandes",  # ← CHANGEMENT ICI
+                        "https://pfe-api-uju4.onrender.com/api/create_demande",
                         json={
                             "reference": item["Reference"],
                             "quantite": item["Quantite"],
@@ -322,29 +332,31 @@ if st.session_state.panier:
                         timeout=10
                     )
                     
-                    st.write(f"📊 Status: {response.status_code}")
-                    st.write(f"📄 Response: {response.text}")
-                    
                     if response.status_code in [200, 201]:
                         success_count += 1
                     else:
                         error_count += 1
-                        st.error(f"❌ Erreur pour {item['Reference']}: {response.status_code}")
+                        st.error(f"❌ Erreur pour {item['Reference']}: {response.status_code} - {response.text}")
                         
                 except Exception as e:
                     error_count += 1
                     st.error(f"❌ Erreur connexion API pour {item['Reference']}: {e}")
 
+            # Vider le panier
             st.session_state.panier = []
             
+            # Afficher résultats
             if success_count > 0:
                 st.success(f"✅ {success_count} demande(s) envoyée(s) avec succès !")
             if error_count > 0:
                 st.warning(f"⚠️ {error_count} demande(s) en erreur")
-                
+            
+            # 🔥 REFRESH pour afficher les nouvelles demandes
             st.rerun()
 
+# =============================================
 # SUPERVISION GRAPHIQUE
+# =============================================
 st.markdown("---")
 st.subheader("📊 Historique de Production (Journalier)")
 
