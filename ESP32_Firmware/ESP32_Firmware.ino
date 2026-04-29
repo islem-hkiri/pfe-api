@@ -2,8 +2,8 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 
-const char* ssid = "A17 de Hkiri";
-const char* password = "4w3gshixthsz8h";
+const char* ssid = "BEE HUAWEI-1CB0";
+const char* password = "485754439C621CB0";
 
 // 🔥 MAINANT C'EST L'IP DE RENDER (serveur remote)
 const char* serverIP = "pfe-api-uju4.onrender.com";  // ← Serveur remote
