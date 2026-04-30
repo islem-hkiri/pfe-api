@@ -213,12 +213,6 @@ try:
 except Exception as e:
     st.sidebar.error(f"Erreur historique: {e}")
 
-# ── Déconnexion ───────────────────────────────────────────────────
-st.sidebar.markdown("---")
-if st.sidebar.button(" Déconnexion", use_container_width=True):
-    st.session_state.logged_in = False
-    st.rerun()
-
 # ═══════════════════════════════════════════════════════════════════
 # INTERFACE PRINCIPALE
 # ═══════════════════════════════════════════════════════════════════
@@ -281,7 +275,7 @@ try:
         st.success("✅ Aucune panne signalée pour le moment.")
 
 except Exception:
-    st.info("🔔 Système d'alertes prêt (en attente de messages...).")
+    st.info("Système d'alertes prêt (en attente de messages...).")
 
 # ═══════════════════════════════════════════════════════════════════
 # SECTION 2 : SUIVI EN TEMPS RÉEL - CARTES PYTHON
@@ -414,7 +408,7 @@ with st.container(border=True):
             refs = []
 
         if refs:
-            ref_choisie = st.selectbox("📦 Référence", refs)
+            ref_choisie = st.selectbox(" Référence", refs)
             # Afficher stock disponible
             try:
                 stock_dispo = df_stock[
