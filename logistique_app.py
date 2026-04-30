@@ -12,7 +12,6 @@ from database_v2 import init_db
 # ═══════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Logistique - Supervision",
-    page_icon="🏭",
     layout="wide"
 )
 
@@ -103,7 +102,7 @@ df_pannes = pd.DataFrame(pannes_api) if pannes_api else pd.DataFrame()
 # ═══════════════════════════════════════════════════════════════════
 # SIDEBAR & KPI (Calculés sur les données API)
 # ═══════════════════════════════════════════════════════════════════
-st.sidebar.title("📊 Tableau de Bord")
+st.sidebar.title("Tableau de Bord")
 
 # KPI Total et Terminées
 total = len(df_demandes) if not df_demandes.empty else 0
@@ -129,10 +128,10 @@ if not df_demandes.empty and 'statut' in df_demandes.columns:
         except:
             temps_moyen = 0
 
-st.sidebar.metric("⏱️ Temps moyen (s)", temps_moyen if temps_moyen > 0 else "0")
+st.sidebar.metric("Temps moyen (s)", temps_moyen if temps_moyen > 0 else "0")
 
 # KPI Performance / Taux d'occupation
-st.sidebar.subheader("⚡ Performance (KPI)")
+st.sidebar.subheader(" Performance (KPI)")
 TEMPS_SHIFT_SEC = 8 * 3600
 
 if not df_demandes.empty and 'statut' in df_demandes.columns:
@@ -153,7 +152,7 @@ if not df_demandes.empty and 'statut' in df_demandes.columns:
             st.sidebar.progress(taux / 100)
             
             if taux > 85:
-                st.sidebar.warning("🔥 Charge élevée détectée !")
+                st.sidebar.warning("Charge élevée détectée !")
         else:
             st.sidebar.info("Attente de données de production...")
     except:
@@ -167,7 +166,7 @@ if not df_demandes.empty and 'urgence' in df_demandes.columns:
 
 # Historique
 st.sidebar.markdown("---")
-st.sidebar.subheader("🕐 Historique des Demandes")
+st.sidebar.subheader("Historique des Demandes")
 
 try:
     if not df_demandes.empty and 'heure_demande' in df_demandes.columns:
@@ -179,7 +178,7 @@ try:
             df_hist.columns = ['heure_demande', 'Nb_Refs']
             df_hist = df_hist.sort_values('heure_demande', ascending=False).head(10)
             
-            if st.sidebar.button("🗑️ Vider l'historique", use_container_width=True):
+            if st.sidebar.button("Vider l'historique", use_container_width=True):
                 if archiver_demandes_api():
                     st.cache_data.clear()
                     st.rerun()
@@ -187,7 +186,7 @@ try:
                     st.sidebar.error("Erreur lors de l'archivage")
             
             for _, row in df_hist.iterrows():
-                with st.sidebar.expander(f"📅 {row['heure_demande']} ({row['Nb_Refs']} réfs)"):
+                with st.sidebar.expander(f"{row['heure_demande']} ({row['Nb_Refs']} réfs)"):
                     details = df_demandes[df_demandes['heure_demande'] == row['heure_demande']][['reference', 'quantite', 'statut']]
                     st.dataframe(details, use_container_width=True, hide_index=True)
         else:
@@ -198,7 +197,7 @@ except Exception as e:
 # ═══════════════════════════════════════════════════════════════════
 # INTERFACE PRINCIPALE
 # ═══════════════════════════════════════════════════════════════════
-st.title("🏭 Demandes - Poste Soudure (Connecté à Render)")
+st.title("Demandes - Poste Soudure (Connecté à Render)")
 
 # SECTION 1 : ALERTES PANNES (Temps réel via API)
 st.subheader("🔴 Alertes de Panne en Temps Réel")
@@ -210,13 +209,13 @@ try:
         if not df_ouvertes.empty:
             for _, row in df_ouvertes.iterrows():
                 st.error(f"""
-                **🚨 NOUVELLE ALERTE REÇUE**
+                **NOUVELLE ALERTE REÇUE**
                 - **Message :** {row.get('cause', 'N/A')}
                 - **Opérateur :** {row.get('operateur_id', 'N/A')}
                 - **Heure :** {row.get('debut_panne', 'N/A')}
                 """)
             
-            if st.button("✅ Confirmer la réception / Traiter", type="primary", use_container_width=True):
+            if st.button("Confirmer la réception / Traiter", type="primary", use_container_width=True):
                 if resoudre_pannes_api():
                     st.success("Alerte marquée comme traitée")
                     st.cache_data.clear()
@@ -224,16 +223,16 @@ try:
                 else:
                     st.error("Erreur lors de la mise à jour")
         else:
-            st.success("✅ Aucune panne signalée pour le moment.")
+            st.success("Aucune panne signalée pour le moment.")
     else:
-        st.success("✅ Aucune panne signalée.")
+        st.success("Aucune panne signalée.")
         
 except Exception as e:
     st.info(f"Système d'alertes prêt (en attente de données...)")
 
 # SECTION 2 : SUIVI TEMPS RÉEL (Données API)
 st.markdown("---")
-st.subheader("📊 Suivi des fabrications en temps réel")
+st.subheader("Suivi des fabrications en temps réel")
 
 try:
     if not df_demandes.empty and 'statut' in df_demandes.columns:
@@ -268,16 +267,16 @@ try:
                             st.progress(progress)
             """
         else:
-            st.success("✅ Aucune production en attente.")
+            st.success("Aucune production en attente.")
     else:
-        st.info("🔄 Chargement des données depuis le serveur...")
+        st.info("Chargement des données depuis le serveur...")
 
 except Exception as e:
     st.error(f"Erreur de lecture du suivi: {e}")
 
 # SECTION 3 : NOUVELLE DEMANDE (Envoi via API)
 st.markdown("---")
-st.subheader("➕ Nouvelle Demande de Production")
+st.subheader("Nouvelle Demande de Production")
 
 if "panier" not in st.session_state:
     st.session_state.panier = []
@@ -293,42 +292,42 @@ with st.container():
             
             # Afficher stock disponible
             stock_dispo = df_stock_info[df_stock_info['reference'] == ref_choisie]['quantite'].values[0]
-            st.info(f"📦 Stock disponible local : **{stock_dispo} pcs**")
+            st.info(f"Stock disponible local : **{stock_dispo} pcs**")
         except:
             ref_choisie = st.text_input("Référence (manuel)")
             
         qte_voulue = st.number_input("Quantité totale souhaitée", 1, 10000, 50)
         
     with c2:
-        urg = st.selectbox("⚡ Urgence", ["Normal", "Urgent", "Critique"])
+        urg = st.selectbox("Urgence", ["Normal", "Urgent", "Critique"])
         date_b = st.date_input("Date de besoin")
 
-    if st.button("➕ Ajouter à la liste", use_container_width=True):
+    if st.button("Ajouter à la liste", use_container_width=True):
         st.session_state.panier.append({
             "Reference": ref_choisie,
             "Quantite": qte_voulue,
             "Urgence": urg,
             "Date_Besoin": str(date_b)
         })
-        st.success(f"✅ {ref_choisie} ajouté au panier")
+        st.success(f"{ref_choisie} ajouté au panier")
         st.rerun()
 
 # AFFICHAGE PANIER & ENVOI
 if st.session_state.panier:
     st.markdown("---")
-    st.write("🛒 **Liste en cours de préparation**")
+    st.write("**Liste en cours de préparation**")
     
     df_panier = pd.DataFrame(st.session_state.panier)
     st.dataframe(df_panier, use_container_width=True, hide_index=True)
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        if st.button("❌ Annuler tout", use_container_width=True):
+        if st.button(" Annuler tout", use_container_width=True):
             st.session_state.panier = []
             st.rerun()
             
     with col_b2:
-        if st.button("🚀 Envoyer au montage (Render)", type="primary", use_container_width=True):
+        if st.button("Envoyer au montage (Render)", type="primary", use_container_width=True):
             maintenant = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             succes_count = 0
             erreurs = []
@@ -337,7 +336,7 @@ if st.session_state.panier:
                 for item in st.session_state.panier:
                     # Vérification stock local (optionnel)
                     res = conn_local.execute("SELECT quantite FROM Stock WHERE reference = ?", 
-                                           (item['Reference'],)).fetchone()
+                    (item['Reference'],)).fetchone()
                     stock_actuel = res[0] if res else 0
                     besoin_reel = max(0, item['Quantite'] - stock_actuel)
                     
@@ -356,7 +355,7 @@ if st.session_state.panier:
                             else:
                                 erreurs.append(f"{item['Reference']} Shift {shift}: {msg}")
                     else:
-                        st.warning(f"⚠️ Stock suffisant pour {item['Reference']} (pas d'envoi nécessaire)")
+                        st.warning(f"Stock suffisant pour {item['Reference']} (pas d'envoi nécessaire)")
             
             # Nettoyage
             st.session_state.panier = []
@@ -374,7 +373,7 @@ if st.session_state.panier:
 
 # SECTION 4 : GRAPHIQUE HISTORIQUE (Données API)
 st.markdown("---")
-st.subheader("📈 Historique de Production (Journalier)")
+st.subheader("Historique de Production (Journalier)")
 
 try:
     if not df_demandes.empty and 'statut' in df_demandes.columns:
