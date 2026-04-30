@@ -47,57 +47,37 @@ st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 # RECUPERATION TACHES
 # ==========================
 
+# A remplacer fi operateur_app.py (Section récupération tâches)
 try:
-    response = requests.get(
-        f"{API_URL}/api/operateur_tasks?shift={shift}"
-    )
-
+    # 1. Tjib el khedma s7i7a mel API mte3ek
+    response = requests.get(f"{API_URL}/api/operateur_tasks?shift={shift}")
+    
     if response.status_code == 200:
         tasks = response.json().get("tasks", [])
-
+        
         if tasks:
             for task in tasks:
-                id_d = task["id"]
-                module = task.get("module", task.get("reference", ""))
-                qte = task["quantite"]
-                statut = task["statut"]
-
-                with st.expander(f"{module} | Qte {qte} | ID {id_d}"):
-
-                    col1, col2 = st.columns(2)
-
-                    with col1:
-                        if statut == "🟢En cours":
-                            st.button("Production en cours", disabled=True)
-                        else:
-                            if st.button("Lancer production", key=f"start_{id_d}"):
-                                requests.post(
-                                    f"{API_URL}/api/start_production",
-                                    json={
-                                        "demande_id": id_d,
-                                        "operateur_id": id_op_saisie
-                                    }
-                                )
+                # Synchronisation: kol task n7ottouha fi expander
+                statut_label = task['statut']
+                
+                with st.expander(f"📦 {task['reference']} - {statut_label}"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        # Ken "En attente", nwarriw bouton "Lancer"
+                        if "attente" in statut_label.lower():
+                            if st.button("▶️ Lancer Production", key=f"start_{task['id']}"):
+                                # Hna el API lazem tbadal el statut l "En cours" 
+                                # bech el Carte (WebSocket) tfiq biha
+                                requests.post(f"{API_URL}/api/start_production", 
+                                            json={"demande_id": task['id'], "operateur_id": id_op_saisie})
                                 st.rerun()
-
-                    with col2:
-                        if st.button("Terminer", key=f"end_{id_d}"):
-                            requests.post(
-                                f"{API_URL}/api/terminer_production",
-                                json={"demande_id": id_d}
-                            )
-                            st.rerun()
-
-                    if "En attente" in statut:
-                        st.warning("🟠 EN ATTENTE")
-                    elif "En cours" in statut:
-                        st.error("🟢 EN COURS")
-
+                    with c2:
+                        if "cours" in statut_label.lower():
+                            if st.button("✅ Terminer", key=f"end_{task['id']}"):
+                                requests.post(f"{API_URL}/api/terminer_production", 
+                                            json={"demande_id": task['id']})
+                                st.rerun()
         else:
-            st.success("Aucune tâche active")
-
-    else:
-        st.error("Erreur API")
-
-except Exception as e:
-    st.error("Impossible de charger les tâches")
+            st.info("Tranquille! Ma fama 7atta khedma tawa.")
+except:
+    st.error("Mochkla fil connexion m3a el API Operateu")

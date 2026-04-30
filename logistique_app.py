@@ -230,50 +230,35 @@ try:
 except Exception as e:
     st.info(f"Système d'alertes prêt (en attente de données...)")
 
-# SECTION 2 : SUIVI TEMPS RÉEL (Données API)
+# SECTION 2 : SUIVI TEMPS RÉEL
 st.markdown("---")
-st.subheader("Suivi des fabrications en temps réel")
+st.subheader("📊 Suivi des fabrications en temps réel")
 
 try:
-    if not df_demandes.empty and 'statut' in df_demandes.columns:
-        # Filtrer En attente et En cours
-        mask = df_demandes['statut'].str.contains('En attente|En cours', na=False)
-        df_suivi = df_demandes[mask].copy()
-        
-        # Tri : En cours d'abord
-        df_suivi['sort_key'] = df_suivi['statut'].apply(lambda x: 0 if 'En cours' in str(x) else 1)
-        df_suivi = df_suivi.sort_values('sort_key')
-        
+    # 1. Tjib el data mel API (Dima thabbet elli n7it @st.cache_data mel fouk bech dima tech3el)
+    demandes_api = get_demandes_api()
+    df_suivi_raw = pd.DataFrame(demandes_api)
+
+    if not df_suivi_raw.empty:
+        # 2. Filtrage intelligent (ignore case bech ma noghltouch fil emojis wala hrouf sghar)
+        # Nlawjou 3la ay 7aja fiha "cours" wala "attente"
+        mask = df_suivi_raw['statut'].str.contains('cours|attente', case=False, na=False)
+        df_suivi = df_suivi_raw[mask].copy()
+
         if not df_suivi.empty:
-            # Affichage style carte ou dataframe selon préférence
-            # Option A : DataFrame classique (comme votre premier code)
-            df_display = df_suivi[['reference', 'quantite', 'urgence', 'statut', 'operateur_id', 'shift']].copy()
-            df_display.columns = ['Référence', 'Qté', 'Urgence', 'État', 'Opérateur', 'Shift']
-            
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-            
-            # Option B : Cartes visuelles (décommentez si vous préférez)
-            """
-            cols = st.columns(3)
-            for i, (_, row) in enumerate(df_suivi.iterrows()):
-                with cols[i % 3]:
-                    with st.container(border=True):
-                        st.markdown(f"### {row['reference']}")
-                        st.markdown(f"**Statut :** {row['statut']}")
-                        st.markdown(f"**Qté :** {row['quantite']}")
-                        st.markdown(f"**Urgence :** {row['urgence']}")
-                        if pd.notna(row.get('compteur')) and row['compteur'] > 0:
-                            progress = min(row['compteur'] / row['quantite'], 1.0)
-                            st.progress(progress)
-            """
+            # 3. Tri: En cours yji el fouk
+            df_suivi['priorite'] = df_suivi['statut'].apply(lambda x: 0 if 'cours' in str(x).lower() else 1)
+            df_suivi = df_suivi.sort_values(by=['priorite', 'urgence'])
+
+            # 4. Affichage simple
+            display_cols = ['reference', 'quantite', 'statut', 'shift', 'urgence']
+            st.dataframe(df_suivi[display_cols], use_container_width=True, hide_index=True)
         else:
-            st.success("Aucune production en attente.")
+            st.success("✅ Aucune production active (Toutes terminées).")
     else:
-        st.info("Chargement des données depuis le serveur...")
-
+        st.info("Aucune demande trouvée sur le serveur.")
 except Exception as e:
-    st.error(f"Erreur de lecture du suivi: {e}")
-
+    st.error(f"Erreur d'affichage : {e}")
 # SECTION 3 : NOUVELLE DEMANDE (Envoi via API)
 st.markdown("---")
 st.subheader("Nouvelle Demande de Production")
