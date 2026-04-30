@@ -231,34 +231,76 @@ except Exception as e:
     st.info(f"Système d'alertes prêt (en attente de données...)")
 
 # SECTION 2 : SUIVI TEMPS RÉEL
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 2 : SUIVI TEMPS RÉEL (Données de la base en ligne)
+# ═══════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.subheader("📊 Suivi des fabrications en temps réel")
+st.subheader("📊 Suivi des fabrications en temps réel (Serveur)")
 
 try:
-    # 1. Tjib el data mel API (Dima thabbet elli n7it @st.cache_data mel fouk bech dima tech3el)
-    demandes_api = get_demandes_api()
-    df_suivi_raw = pd.DataFrame(demandes_api)
+    # 1. Récupération fraîche des données depuis l'API
+    # Note: st_autorefresh rafraîchit toute la page, donc get_demandes_api() est ré-exécuté
+    demandes_live = get_demandes_api()
+    
+    if demandes_live:
+        df_suivi = pd.DataFrame(demandes_live)
 
-    if not df_suivi_raw.empty:
-        # 2. Filtrage intelligent (ignore case bech ma noghltouch fil emojis wala hrouf sghar)
-        # Nlawjou 3la ay 7aja fiha "cours" wala "attente"
-        mask = df_suivi_raw['statut'].str.contains('cours|attente', case=False, na=False)
-        df_suivi = df_suivi_raw[mask].copy()
-
+        # 2. Filtrage : On ne garde que ce qui n'est pas encore archivé
+        # On affiche : "En attente", "En cours", et "Terminé" (non archivé)
         if not df_suivi.empty:
-            # 3. Tri: En cours yji el fouk
-            df_suivi['priorite'] = df_suivi['statut'].apply(lambda x: 0 if 'cours' in str(x).lower() else 1)
-            df_suivi = df_suivi.sort_values(by=['priorite', 'urgence'])
+            # Nettoyage des colonnes pour éviter les erreurs de tri
+            if 'date_besoin' in df_suivi.columns:
+                df_suivi['date_besoin'] = pd.to_datetime(df_suivi['date_besoin']).dt.date
+            
+            # 3. Création de catégories pour un affichage organisé
+            en_cours = df_suivi[df_suivi['statut'].str.contains('cours', case=False, na=False)]
+            en_attente = df_suivi[df_suivi['statut'].str.contains('attente', case=False, na=False)]
+            recents = df_suivi[df_suivi['statut'].str.contains('Terminé', case=False, na=False)].head(5)
 
-            # 4. Affichage simple
-            display_cols = ['reference', 'quantite', 'statut', 'shift', 'urgence']
-            st.dataframe(df_suivi[display_cols], use_container_width=True, hide_index=True)
+            # 4. Affichage des onglets pour plus de clarté
+            tab1, tab2, tab3 = st.tabs([
+                f"⚡ En cours ({len(en_cours)})", 
+                f"⏳ File d'attente ({len(en_attente)})", 
+                "✅ Derniers terminés"
+            ])
+
+            with tab1:
+                if not en_cours.empty:
+                    # On affiche en priorité les urgents
+                    st.dataframe(
+                        en_cours[['reference', 'quantite', 'shift', 'urgence', 'statut', 'debut_production']], 
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.info("Aucune production active sur les machines.")
+
+            with tab2:
+                if not en_attente.empty:
+                    # Tri par urgence (Critique > Urgent > Normal)
+                    priorite_map = {'Critique': 0, 'Urgent': 1, 'Normal': 2}
+                    en_attente['prio_val'] = en_attente['urgence'].map(priorite_map)
+                    en_attente = en_attente.sort_values('prio_val')
+                    
+                    st.dataframe(
+                        en_attente[['reference', 'quantite', 'shift', 'urgence', 'date_besoin']], 
+                        use_container_width=True, hide_index=True
+                    )
+                else:
+                    st.success("Toutes les demandes ont été traitées !")
+
+            with tab3:
+                if not recents.empty:
+                    st.dataframe(
+                        recents[['reference', 'quantite', 'statut', 'fin_production']], 
+                        use_container_width=True, hide_index=True
+                    )
         else:
-            st.success("✅ Aucune production active (Toutes terminées).")
+            st.info("La base de données est vide.")
     else:
-        st.info("Aucune demande trouvée sur le serveur.")
+        st.warning("Impossible de récupérer les données depuis le serveur Render.")
+
 except Exception as e:
-    st.error(f"Erreur d'affichage : {e}")
+    st.error(f"Erreur lors de l'affichage du suivi : {e}")
 # SECTION 3 : NOUVELLE DEMANDE (Envoi via API)
 st.markdown("---")
 st.subheader("Nouvelle Demande de Production")
