@@ -7,397 +7,250 @@ import os
 from streamlit_autorefresh import st_autorefresh
 from database_v2 import init_db
 
-# ═══════════════════════════════════════════════════════════════════
-# CONFIGURATION
-# ═══════════════════════════════════════════════════════════════════
-st.set_page_config(
-    page_title="Logistique - Supervision",
-    layout="wide"
-)
+# Configuration
+st.set_page_config(page_title="Logistique - Supervision", page_icon="🏭", layout="wide")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
-API_BASE = "https://pfe-api-uju4.onrender.com/api"  # Votre API Render
+API_BASE = "https://pfe-api-uju4.onrender.com/api"
 
-# Initialisation DB locale (pour le Stock uniquement)
 if not os.path.exists(DB_PATH):
     init_db()
 
-# Auto-refresh toutes les 5 secondes pour le temps réel
 st_autorefresh(interval=5000, key="log_refresh")
-
-# Connexion locale uniquement pour le Stock (références)
 conn_local = sqlite3.connect(DB_PATH)
 
 # ═══════════════════════════════════════════════════════════════════
-# FONCTIONS API (Connexion à Render)
+# FONCTIONS API (SANS CACHE pour test, ou TTL très court)
 # ═══════════════════════════════════════════════════════════════════
-@st.cache_data(ttl=5)
 def get_demandes_api():
-    """Récupère toutes les demandes depuis l'API en ligne"""
     try:
         r = requests.get(f"{API_BASE}/get_demandes", timeout=10)
         if r.status_code == 200:
-            return r.json()
-        return []
+            data = r.json()
+            # Debug: décommenter pour voir les données brutes
+            # st.sidebar.write(f"API retourne {len(data)} demandes")
+            return data
+        else:
+            st.error(f"Erreur API: {r.status_code}")
+            return []
     except Exception as e:
-        st.error(f"Erreur connexion API Demandes: {e}")
+        st.error(f"Erreur connexion: {e}")
         return []
 
-@st.cache_data(ttl=5)
 def get_pannes_api():
-    """Récupère les pannes depuis l'API en ligne"""
     try:
         r = requests.get(f"{API_BASE}/get_pannes", timeout=10)
-        if r.status_code == 200:
-            return r.json()
-        return []
-    except Exception as e:
-        st.error(f"Erreur connexion API Pannes: {e}")
+        return r.json() if r.status_code == 200 else []
+    except:
         return []
 
 def create_demande_api(reference, quantite, date_besoin, shift, urgence):
-    """Crée une demande via l'API"""
     try:
-        resp = requests.post(
-            f"{API_BASE}/create_demande",
-            json={
-                "reference": reference,
-                "quantite": quantite,
-                "date_besoin": date_besoin,
-                "shift": shift,
-                "urgence": urgence
-            },
-            timeout=10
-        )
+        resp = requests.post(f"{API_BASE}/create_demande", json={
+            "reference": reference, "quantite": quantite, 
+            "date_besoin": date_besoin, "shift": shift, "urgence": urgence
+        }, timeout=10)
         return resp.status_code == 200, resp.text
     except Exception as e:
         return False, str(e)
 
-def resoudre_pannes_api():
-    """Marque les pannes comme résolues via l'API"""
-    try:
-        resp = requests.post(f"{API_BASE}/resoudre_pannes", timeout=10)
-        return resp.status_code == 200
-    except:
-        return False
-
-def archiver_demandes_api():
-    """Archive les demandes via l'API"""
-    try:
-        resp = requests.post(f"{API_BASE}/archiver_demandes", timeout=10)
-        return resp.status_code == 200
-    except:
-        return False
-
 # ═══════════════════════════════════════════════════════════════════
-# CHARGEMENT DES DONNÉES (Depuis Render)
+# CHARGEMENT DONNÉES
 # ═══════════════════════════════════════════════════════════════════
 demandes_api = get_demandes_api()
 pannes_api = get_pannes_api()
 
 df_demandes = pd.DataFrame(demandes_api) if demandes_api else pd.DataFrame()
-df_pannes = pd.DataFrame(pannes_api) if pannes_api else pd.DataFrame()
 
 # ═══════════════════════════════════════════════════════════════════
-# SIDEBAR & KPI (Calculés sur les données API)
+# SIDEBAR (KPI)
 # ═══════════════════════════════════════════════════════════════════
-st.sidebar.title("Tableau de Bord")
+st.sidebar.title("📊 Tableau de Bord")
 
-# KPI Total et Terminées
-total = len(df_demandes) if not df_demandes.empty else 0
-termine = 0
+# Debug option
+show_debug = st.sidebar.checkbox("🐛 Mode Debug (voir données brutes)", value=False)
 
-if not df_demandes.empty and 'statut' in df_demandes.columns:
-    termine = df_demandes['statut'].str.contains('Terminé', na=False).sum()
+if show_debug and not df_demandes.empty:
+    st.sidebar.write("Colonnes API:", df_demandes.columns.tolist())
+    st.sidebar.write("Première ligne:", df_demandes.iloc[0].to_dict() if len(df_demandes) > 0 else "Vide")
 
-st.sidebar.metric("Total demandes", total)
+total = len(df_demandes)
+termine = df_demandes['statut'].str.contains('Terminé', na=False).sum() if not df_demandes.empty else 0
+
+st.sidebar.metric("Total", total)
 st.sidebar.metric("Terminées", termine)
 
-# KPI Temps moyen
-st.sidebar.markdown("---")
-temps_moyen = 0
-if not df_demandes.empty and 'statut' in df_demandes.columns:
-    df_done = df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)].copy()
-    if not df_done.empty:
-        try:
-            df_done['debut'] = pd.to_datetime(df_done['debut_production'], errors='coerce')
-            df_done['fin'] = pd.to_datetime(df_done['fin_production'], errors='coerce')
-            df_done['duree'] = (df_done['fin'] - df_done['debut']).dt.total_seconds()
-            temps_moyen = int(df_done['duree'].mean())
-        except:
-            temps_moyen = 0
-
-st.sidebar.metric("Temps moyen (s)", temps_moyen if temps_moyen > 0 else "0")
-
-# KPI Performance / Taux d'occupation
-st.sidebar.subheader(" Performance (KPI)")
-TEMPS_SHIFT_SEC = 8 * 3600
-
-if not df_demandes.empty and 'statut' in df_demandes.columns:
-    # Filtrer les terminés aujourd'hui
-    try:
-        df_done = df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)].copy()
-        df_done['fin_date'] = pd.to_datetime(df_done['fin_production'], errors='coerce').dt.date
-        today = datetime.today().date()
-        df_today = df_done[df_done['fin_date'] == today]
-        
-        if not df_today.empty:
-            df_today['debut'] = pd.to_datetime(df_today['debut_production'], errors='coerce')
-            df_today['fin'] = pd.to_datetime(df_today['fin_production'], errors='coerce')
-            total_sec = (df_today['fin'] - df_today['debut']).dt.total_seconds().sum()
-            
-            taux = min(int((total_sec / TEMPS_SHIFT_SEC) * 100), 100)
-            st.sidebar.metric("Taux d'Occupation Jour", f"{taux}%")
-            st.sidebar.progress(taux / 100)
-            
-            if taux > 85:
-                st.sidebar.warning("Charge élevée détectée !")
-        else:
-            st.sidebar.info("Attente de données de production...")
-    except:
-        st.sidebar.info("Attente de données...")
-
-# KPI Urgence
-if not df_demandes.empty and 'urgence' in df_demandes.columns:
-    st.sidebar.markdown("---")
-    df_urg = df_demandes.groupby('urgence').size().reset_index(name='total')
-    st.sidebar.bar_chart(df_urg.set_index('urgence'))
-
-# Historique
-st.sidebar.markdown("---")
-st.sidebar.subheader("Historique des Demandes")
-
-try:
-    if not df_demandes.empty and 'heure_demande' in df_demandes.columns:
-        # Filtrer les non archivés
-        df_non_arch = df_demandes[~df_demandes['statut'].str.contains('Archivé', na=False)]
-        
-        if not df_non_arch.empty:
-            df_hist = df_non_arch.groupby('heure_demande')['reference'].count().reset_index()
-            df_hist.columns = ['heure_demande', 'Nb_Refs']
-            df_hist = df_hist.sort_values('heure_demande', ascending=False).head(10)
-            
-            if st.sidebar.button("Vider l'historique", use_container_width=True):
-                if archiver_demandes_api():
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.sidebar.error("Erreur lors de l'archivage")
-            
-            for _, row in df_hist.iterrows():
-                with st.sidebar.expander(f"{row['heure_demande']} ({row['Nb_Refs']} réfs)"):
-                    details = df_demandes[df_demandes['heure_demande'] == row['heure_demande']][['reference', 'quantite', 'statut']]
-                    st.dataframe(details, use_container_width=True, hide_index=True)
-        else:
-            st.sidebar.info("Aucun historique actif")
-except Exception as e:
-    st.sidebar.error(f"Erreur historique: {e}")
+# Bouton refresh manuel
+if st.sidebar.button("🔄 Forcer le rafraîchissement"):
+    st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════
 # INTERFACE PRINCIPALE
 # ═══════════════════════════════════════════════════════════════════
-st.title("Demandes - Poste Soudure (Connecté à Render)")
+st.title("🏭 Suivi Production - Render")
 
-# SECTION 1 : ALERTES PANNES (Temps réel via API)
+# SECTION 1: ALERTES PANNES
 st.subheader("🔴 Alertes de Panne en Temps Réel")
+df_pannes = pd.DataFrame(pannes_api) if pannes_api else pd.DataFrame()
+
+if not df_pannes.empty:
+    df_ouvertes = df_pannes[df_pannes['statut'].str.contains('Ouvert', na=False, case=False)]
+    if not df_ouvertes.empty:
+        for _, row in df_ouvertes.iterrows():
+            st.error(f"🚨 **Panne** | Opérateur: {row.get('operateur_id')} | Cause: {row.get('cause')} | {row.get('debut_panne')}")
+        if st.button("✅ Traiter les alertes"):
+            requests.post(f"{API_BASE}/resoudre_pannes", timeout=10)
+            st.rerun()
+    else:
+        st.success("✅ Aucune panne signalée")
+else:
+    st.info("Aucune donnée de panne")
+
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 2: SUIVI TEMPS RÉEL - CORRIGÉ
+# ═══════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.subheader("📋 Suivi des fabrications en temps réel")
 
 try:
-    if not df_pannes.empty and 'statut' in df_pannes.columns:
-        df_ouvertes = df_pannes[df_pannes['statut'].str.contains('Ouvert', na=False)]
+    if df_demandes.empty:
+        st.warning("🔄 Aucune donnée reçue de l'API (liste vide)")
         
-        if not df_ouvertes.empty:
-            for _, row in df_ouvertes.iterrows():
-                st.error(f"""
-                **NOUVELLE ALERTE REÇUE**
-                - **Message :** {row.get('cause', 'N/A')}
-                - **Opérateur :** {row.get('operateur_id', 'N/A')}
-                - **Heure :** {row.get('debut_panne', 'N/A')}
-                """)
+        # Vérifier connexion
+        try:
+            test = requests.get(API_BASE.replace('/api', ''), timeout=5)
+            st.info(f"Test connexion: {test.status_code}")
+        except:
+            st.error("❌ Impossible de contacter le serveur Render")
             
-            if st.button("Confirmer la réception / Traiter", type="primary", use_container_width=True):
-                if resoudre_pannes_api():
-                    st.success("Alerte marquée comme traitée")
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("Erreur lors de la mise à jour")
-        else:
-            st.success("Aucune panne signalée pour le moment.")
     else:
-        st.success("Aucune panne signalée.")
+        # Voir toutes les données si mode debug
+        if show_debug:
+            with st.expander("Voir toutes les données brutes API"):
+                st.dataframe(df_demandes)
+                st.write("Statuts uniques:", df_demandes['statut'].unique() if 'statut' in df_demandes.columns else "Pas de colonne statut")
         
-except Exception as e:
-    st.info(f"Système d'alertes prêt (en attente de données...)")
-
-# SECTION 2 : SUIVI TEMPS RÉEL (Données API)
-st.markdown("---")
-st.subheader("Suivi des fabrications en temps réel")
-
-try:
-    if not df_demandes.empty and 'statut' in df_demandes.columns:
-        # Filtrer En attente et En cours
-        mask = df_demandes['statut'].str.contains('En attente|En cours', na=False)
-        df_suivi = df_demandes[mask].copy()
-        
-        # Tri : En cours d'abord
-        df_suivi['sort_key'] = df_suivi['statut'].apply(lambda x: 0 if 'En cours' in str(x) else 1)
-        df_suivi = df_suivi.sort_values('sort_key')
-        
-        if not df_suivi.empty:
-            # Affichage style carte ou dataframe selon préférence
-            # Option A : DataFrame classique (comme votre premier code)
-            df_display = df_suivi[['reference', 'quantite', 'urgence', 'statut', 'operateur_id', 'shift']].copy()
-            df_display.columns = ['Référence', 'Qté', 'Urgence', 'État', 'Opérateur', 'Shift']
-            
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-            
-            # Option B : Cartes visuelles (décommentez si vous préférez)
-            """
-            cols = st.columns(3)
-            for i, (_, row) in enumerate(df_suivi.iterrows()):
-                with cols[i % 3]:
-                    with st.container(border=True):
-                        st.markdown(f"### {row['reference']}")
-                        st.markdown(f"**Statut :** {row['statut']}")
-                        st.markdown(f"**Qté :** {row['quantite']}")
-                        st.markdown(f"**Urgence :** {row['urgence']}")
-                        if pd.notna(row.get('compteur')) and row['compteur'] > 0:
-                            progress = min(row['compteur'] / row['quantite'], 1.0)
-                            st.progress(progress)
-            """
+        # Vérifier que la colonne statut existe
+        if 'statut' not in df_demandes.columns:
+            st.error("❌ Colonne 'statut' manquante dans les données API")
+            st.write("Colonnes disponibles:", df_demandes.columns.tolist())
         else:
-            st.success("Aucune production en attente.")
-    else:
-        st.info("Chargement des données depuis le serveur...")
+            # FILTRAGE CORRIGÉ - Plus flexible avec les emojis
+            # On normalise les statuts pour être sûr
+            df_demandes['statut_clean'] = df_demandes['statut'].astype(str).str.strip()
+            
+            # Masque pour en attente ou en cours (insensible à la casse et aux emojis partiels)
+            mask_en_cours = (
+                df_demandes['statut_clean'].str.contains('cours', case=False, na=False) | 
+                df_demandes['statut_clean'].str.contains('attente', case=False, na=False) |
+                df_demandes['statut_clean'].str.contains('🟢', na=False) |
+                df_demandes['statut_clean'].str.contains('🟠', na=False)
+            )
+            
+            df_suivi = df_demandes[mask_en_cours].copy()
+            
+            if show_debug:
+                st.write(f"Debug: {len(df_suivi)} demandes filtrées sur {len(df_demandes)} total")
+            
+            if df_suivi.empty:
+                st.success("✅ Aucune production en attente ou en cours (tout est terminé ou vide)")
+                
+                # Afficher quand même un aperçu des 5 dernières demandes pour vérifier
+                with st.expander("Voir les 5 dernières demandes (vérification)"):
+                    st.dataframe(df_demandes[['reference', 'statut', 'quantite']].head())
+            else:
+                # TRI: En cours d'abord, puis En attente
+                df_suivi['ordre'] = df_suivi['statut_clean'].apply(
+                    lambda x: 1 if 'cours' in x.lower() or '🟢' in x else 2
+                )
+                df_suivi = df_suivi.sort_values(['ordre', 'id'] if 'id' in df_suivi.columns else 'ordre', 
+                                                ascending=[True, False] if 'id' in df_suivi.columns else True)
+                
+                # SÉLECTION et RENOMMAGE des colonnes pour l'affichage
+                colonnes_affichage = {
+                    'reference': 'Référence',
+                    'quantite': 'Qté', 
+                    'urgence': 'Urgence',
+                    'statut': 'État',
+                    'operateur_id': 'Opérateur',
+                    'shift': 'Shift',
+                    'compteur': 'Produit',
+                    'date_besoin': 'Date besoin'
+                }
+                
+                # Ne garder que les colonnes qui existent
+                cols_dispo = [c for c in colonnes_affichage.keys() if c in df_suivi.columns]
+                df_display = df_suivi[cols_dispo].copy()
+                df_display.rename(columns=colonnes_affichage, inplace=True)
+                
+                # Affichage avec style
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "État": st.column_config.TextColumn("État", help="Statut de la production"),
+                        "Qté": st.column_config.NumberColumn("Qté", help="Quantité demandée"),
+                        "Urgence": st.column_config.TextColumn("Urgence")
+                    }
+                )
+                
+                # Indicateur visuel du nombre
+                nbr_attente = len(df_suivi[df_suivi['statut_clean'].str.contains('attente', case=False)])
+                nbr_cours = len(df_suivi[df_suivi['statut_clean'].str.contains('cours', case=False)])
+                
+                col1, col2 = st.columns(2)
+                col1.metric("🟢 En cours", nbr_cours)
+                col2.metric("🟠 En attente", nbr_attente)
 
 except Exception as e:
-    st.error(f"Erreur de lecture du suivi: {e}")
+    st.error(f"Erreur dans l'affichage du suivi: {e}")
+    import traceback
+    if show_debug:
+        st.code(traceback.format_exc())
 
-# SECTION 3 : NOUVELLE DEMANDE (Envoi via API)
+# ═══════════════════════════════════════════════════════════════════
+# SECTION 3: NOUVELLE DEMANDE
+# ═══════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.subheader("Nouvelle Demande de Production")
+st.subheader("➕ Nouvelle Demande")
 
 if "panier" not in st.session_state:
     st.session_state.panier = []
 
-with st.container():
-    c1, c2 = st.columns(2)
-    with c1:
-        # Stock local pour sélection des références
-        try:
-            df_stock_info = pd.read_sql_query("SELECT reference, quantite FROM Stock", conn_local)
-            refs = df_stock_info['reference'].tolist()
-            ref_choisie = st.selectbox("Référence", refs)
-            
-            # Afficher stock disponible
-            stock_dispo = df_stock_info[df_stock_info['reference'] == ref_choisie]['quantite'].values[0]
-            st.info(f"Stock disponible local : **{stock_dispo} pcs**")
-        except:
-            ref_choisie = st.text_input("Référence (manuel)")
-            
-        qte_voulue = st.number_input("Quantité totale souhaitée", 1, 10000, 50)
-        
-    with c2:
-        urg = st.selectbox("Urgence", ["Normal", "Urgent", "Critique"])
-        date_b = st.date_input("Date de besoin")
+c1, c2 = st.columns(2)
+with c1:
+    try:
+        df_stock = pd.read_sql_query("SELECT reference, quantite FROM Stock", conn_local)
+        ref = st.selectbox("Référence", df_stock['reference'].tolist())
+        st.caption(f"Stock local: {df_stock[df_stock['reference']==ref]['quantite'].values[0]} pcs")
+    except:
+        ref = st.text_input("Référence")
+    qte = st.number_input("Quantité", 1, 10000, 50)
 
-    if st.button("Ajouter à la liste", use_container_width=True):
-        st.session_state.panier.append({
-            "Reference": ref_choisie,
-            "Quantite": qte_voulue,
-            "Urgence": urg,
-            "Date_Besoin": str(date_b)
-        })
-        st.success(f"{ref_choisie} ajouté au panier")
+with c2:
+    urg = st.selectbox("Urgence", ["Normal", "Urgent", "Critique"])
+    date_b = st.date_input("Date besoin", datetime.now())
+
+if st.button("➕ Ajouter au panier"):
+    st.session_state.panier.append({
+        "ref": ref, "qte": qte, "urg": urg, "date": str(date_b)
+    })
+    st.rerun()
+
+if st.session_state.panier:
+    st.write("🛒 Panier:")
+    st.dataframe(pd.DataFrame(st.session_state.panier))
+    
+    if st.button("🚀 Envoyer à Render", type="primary"):
+        for item in st.session_state.panier:
+            for shift in ['A', 'B']:
+                ok, msg = create_demande_api(item['ref'], item['qte'], item['date'], shift, item['urg'])
+                if not ok:
+                    st.error(f"Erreur {item['ref']}: {msg}")
+        st.session_state.panier = []
+        st.success("Envoyé!")
         st.rerun()
 
-# AFFICHAGE PANIER & ENVOI
-if st.session_state.panier:
-    st.markdown("---")
-    st.write("**Liste en cours de préparation**")
-    
-    df_panier = pd.DataFrame(st.session_state.panier)
-    st.dataframe(df_panier, use_container_width=True, hide_index=True)
-    
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
-        if st.button(" Annuler tout", use_container_width=True):
-            st.session_state.panier = []
-            st.rerun()
-            
-    with col_b2:
-        if st.button("Envoyer au montage (Render)", type="primary", use_container_width=True):
-            maintenant = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            succes_count = 0
-            erreurs = []
-            
-            with st.spinner("Envoi vers le serveur en cours..."):
-                for item in st.session_state.panier:
-                    # Vérification stock local (optionnel)
-                    res = conn_local.execute("SELECT quantite FROM Stock WHERE reference = ?", 
-                    (item['Reference'],)).fetchone()
-                    stock_actuel = res[0] if res else 0
-                    besoin_reel = max(0, item['Quantite'] - stock_actuel)
-                    
-                    if besoin_reel > 0:
-                        # Envoi API pour chaque shift (A et B) comme dans votre logique
-                        for shift in ['A', 'B']:
-                            success, msg = create_demande_api(
-                                reference=item['Reference'],
-                                quantite=besoin_reel,
-                                date_besoin=item['Date_Besoin'],
-                                shift=shift,
-                                urgence=item['Urgence']
-                            )
-                            if success:
-                                succes_count += 1
-                            else:
-                                erreurs.append(f"{item['Reference']} Shift {shift}: {msg}")
-                    else:
-                        st.warning(f"Stock suffisant pour {item['Reference']} (pas d'envoi nécessaire)")
-            
-            # Nettoyage
-            st.session_state.panier = []
-            st.cache_data.clear()
-            
-            if erreurs:
-                for err in erreurs:
-                    st.error(f"❌ {err}")
-            
-            if succes_count > 0:
-                st.success(f"✅ {succes_count} demande(s) envoyée(s) avec succès à Render !")
-                st.balloons()
-            
-            st.rerun()
-
-# SECTION 4 : GRAPHIQUE HISTORIQUE (Données API)
-st.markdown("---")
-st.subheader("Historique de Production (Journalier)")
-
-try:
-    if not df_demandes.empty and 'statut' in df_demandes.columns:
-        df_chart = df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)].copy()
-        
-        if not df_chart.empty and 'fin_production' in df_chart.columns:
-            df_chart['jour'] = pd.to_datetime(df_chart['fin_production'], errors='coerce').dt.date
-            df_chart = df_chart.groupby('jour').size().reset_index(name='total').dropna()
-            
-            if not df_chart.empty:
-                st.line_chart(df_chart.set_index('jour'), use_container_width=True)
-            else:
-                st.info("Aucune donnée terminée pour le moment.")
-        else:
-            st.info("Aucune donnée terminée pour le moment.")
-    else:
-        st.info("En attente de données pour l'affichage du graphique.")
-
-except Exception as e:
-    st.info("En attente de données pour l'affichage du graphique.")
-
-# Fermeture connexion locale (Stock uniquement)
 conn_local.close()
-
-# Footer
-st.markdown("---")
-st.caption(f"🟢 Connecté à l'API : {API_BASE} | Dernière mise à jour : {datetime.now().strftime('%H:%M:%S')}")
