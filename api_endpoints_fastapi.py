@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlite3
@@ -29,11 +29,12 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         reference TEXT, quantite INTEGER, date_besoin TEXT,
         shift TEXT, statut TEXT, urgence TEXT, heure_demande TEXT,
-        debut_production TEXT, fin_production TEXT)''')
+        debut_production TEXT, fin_production TEXT, operateur_id TEXT)''')
     # Table Pannes
     cursor.execute('''CREATE TABLE IF NOT EXISTS Pannes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cause TEXT, operateur_id TEXT, debut_panne TEXT, statut TEXT)''')
+        cause TEXT, operateur_id TEXT, debut_panne TEXT, 
+        fin_panne TEXT, statut TEXT)''')
     # Table Stock
     cursor.execute('''CREATE TABLE IF NOT EXISTS Stock (
         reference TEXT PRIMARY KEY, quantite INTEGER)''')
@@ -51,6 +52,24 @@ init_db()
 # ═══════════════════════════════════════════════════════════════════
 class ShiftRequest(BaseModel):
     shift: str
+
+class DemandeCreate(BaseModel):
+    reference: str
+    quantite: int
+    date_besoin: str
+    shift: str
+    urgence: str
+
+class PanneCreate(BaseModel):
+    operateur_id: str
+    cause: str
+
+class ProductionStart(BaseModel):
+    demande_id: int
+    operateur_id: str
+
+class ProductionEnd(BaseModel):
+    demande_id: int
 
 # ═══════════════════════════════════════════════════════════════════
 # GESTION DES WEBSOCKETS (Pour les Cartes ESP)
@@ -165,45 +184,45 @@ def get_demandes():
 
 @app.post("/api/create_demande")
 async def create_demande(data: DemandeCreate):
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-            VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
-        """, (
-            data.reference,
-            data.quantite,
-            data.date_besoin,
-            data.shift,
-            data.urgence
-        )) 
-        conn.commit()
-        conn.close()
-        await send_status_to_card(data.shift)
-        return {"success": True}
-    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
+        VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
+    """, (data.reference, data.quantite, data.date_besoin, data.shift, data.urgence))
+    conn.commit()
+    conn.close()
+    await send_status_to_card(data.shift)
+    return {"success": True, "message": "Demande créée"}
+
 @app.get("/api/operateur_tasks")
 def operateur_tasks(shift: str = "B"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    # Yjib el khedma ili mahich terminée wala archivée
     cursor.execute("""
-        SELECT id, reference, quantite, statut, shift
+        SELECT id, reference, quantite, statut, shift, urgence
         FROM Demandes
         WHERE shift = ?
-        AND statut NOT IN ('✅ Terminé','Archive')
-        ORDER BY id ASC
+        AND statut NOT IN ('✅ Terminé','Archive','Archivé')
+        ORDER BY 
+            CASE urgence
+                WHEN 'Critique' THEN 1
+                WHEN 'Urgent' THEN 2
+                WHEN 'Normal' THEN 3
+                ELSE 4
+            END,
+            id ASC
     """, (shift,))
     rows = cursor.fetchall()
     conn.close()
-    return {"tasks": [{"id": r[0], "reference": r[1], "quantite": r[2], "statut": r[3], "shift": r[4]} for r in rows]}
+    return {"tasks": [{"id": r[0], "reference": r[1], "quantite": r[2], "statut": r[3], "shift": r[4], "urgence": r[5]} for r in rows]}
 
 @app.get("/api/get_pannes")
 def get_pannes():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM Pannes WHERE statut = 'Ouvert' ORDER BY id DESC")
+    cursor.execute("SELECT * FROM Pannes WHERE statut = '🔴 Ouvert' OR statut = 'Ouvert' ORDER BY id DESC")
     pannes = cursor.fetchall()
     conn.close()
     return [dict(p) for p in pannes]
@@ -212,19 +231,48 @@ def get_pannes():
 def resoudre():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("UPDATE Pannes SET statut = 'Résolu' WHERE statut = 'Ouvert'")
+    cursor.execute("UPDATE Pannes SET statut = 'Résolu', fin_panne = datetime('now') WHERE statut = '🔴 Ouvert' OR statut = 'Ouvert'")
     conn.commit()
     conn.close()
     return {"success": True}
 
-#@app.post("/api/archiver_demandes")
-#def archiver():
- #   conn = sqlite3.connect(DB_PATH)
-  #  cursor = conn.cursor()
-   # cursor.execute("UPDATE Demandes SET statut = 'Archivé' WHERE statut LIKE '%Terminé%'")
-   # conn.commit()
-    #conn.close()
-    #return {"success": True}
+@app.post("/api/start_production")
+async def start_production(data: ProductionStart):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE Demandes 
+        SET statut = '🟢En cours', debut_production = datetime('now'), operateur_id = ?
+        WHERE id = ?
+    """, (data.operateur_id, data.demande_id))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Production démarrée"}
+
+@app.post("/api/terminer_production")
+async def terminer_production(data: ProductionEnd):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE Demandes 
+        SET statut = '✅ Terminé', fin_production = datetime('now')
+        WHERE id = ?
+    """, (data.demande_id,))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Production terminée"}
+
+@app.post("/api/signal_panne")
+async def signal_panne(data: PanneCreate):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO Pannes (operateur_id, cause, statut, debut_panne)
+        VALUES (?, ?, '🔴 Ouvert', datetime('now'))
+    """, (data.operateur_id, data.cause))
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "Panne signalée"}
 
 # --- ROUTES CARTES / BOUTONS ---
 
