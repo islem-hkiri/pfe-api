@@ -176,23 +176,144 @@ else:
     st.success(" Aucune panne signalée pour le moment.")
 
 # --- SUIVI TEMPS RÉEL (mil API) ---
+# ═══════════════════════════════════════════════════════════════════
+# SUIVI TEMPS RÉEL (ye5ou mil API enligne - PAS locale)
+# ═══════════════════════════════════════════════════════════════════
+
 st.subheader(" Suivi des fabrications en temps réel")
 
+# ═══════════════════════════════════════════════════════════════════
+# 1. JIB EL DONNÉES MIL API ENLIGNE (machi locale)
+# ═══════════════════════════════════════════════════════════════════
 try:
-    if demandes:
-        df_suivi = pd.DataFrame(demandes)
-        df_suivi = df_suivi[df_suivi['statut'].str.contains('En attente|En cours', na=False, regex=True)]
+    # API CALL - ye5ou les demandes mil base enligne
+    response = requests.get(f"{API_URL}/api/get_demandes", timeout=10)
+    
+    if response.status_code == 200:
+        demandes_api = response.json()  # ← Héthi les données mil API enligne
         
-        if not df_suivi.empty:
-            cols = ['reference', 'quantite', 'urgence', 'statut', 'operateur_id']
-            cols_dispo = [c for c in cols if c in df_suivi.columns]
-            st.dataframe(df_suivi[cols_dispo], use_container_width=True, hide_index=True)
+        # ═══════════════════════════════════════════════════════════
+        # 2. FILTRI LES DEMANDES ILI MAHICH TERMINÉES
+        # ═══════════════════════════════════════════════════════════
+        if demandes_api:
+            df_suivi = pd.DataFrame(demandes_api)
+            
+            # Filtri: ken el demandes ili "En attente" wala "En cours"
+            df_suivi = df_suivi[
+                df_suivi['statut'].str.contains('En attente|En cours', na=False, regex=True)
+            ]
+            
+            # ═══════════════════════════════════════════════════════
+            # 3. AFFICHAGE B CARTES (kima operateur_app.py)
+            # ═══════════════════════════════════════════════════════
+            if not df_suivi.empty:
+                
+                # Résumé en haut
+                total_encours = len(df_suivi[df_suivi['statut'].str.contains('En cours', na=False)])
+                total_attente = len(df_suivi[df_suivi['statut'].str.contains('attente', na=False)])
+                
+                cols = st.columns(3)
+                cols[0].metric("🟢 En cours", total_encours)
+                cols[1].metric("🟠 En attente", total_attente)
+                cols[2].metric("📊 Total actif", len(df_suivi))
+                
+                st.markdown("---")
+                
+                # Loop 3la koll demande w twarriha b carte
+                for index, row in df_suivi.iterrows():
+                    id_d = row.get('id', 'N/A')
+                    module = row.get('reference', 'N/A')
+                    qte = row.get('quantite', 0)
+                    statut = row.get('statut', 'N/A')
+                    urgence = row.get('urgence', 'Normal')
+                    operateur = row.get('operateur_id', 'Non assigné')
+                    shift = row.get('shift', 'N/A')
+                    date_besoin = row.get('date_besoin', 'N/A')
+                    heure_demande = row.get('heure_demande', 'N/A')
+                    
+                    # Couleur selon urgence
+                    if urgence == "Critique":
+                        border_color = "#ff4b4b"
+                        bg_color = "#3d1f1f"
+                    elif urgence == "Urgent":
+                        border_color = "#ffa421"
+                        bg_color = "#3d2a1f"
+                    else:
+                        border_color = "#262730"
+                        bg_color = "#1e1e1e"
+                    
+                    # Couleur selon statut
+                    if "En cours" in statut:
+                        status_color = "#00ff88"
+                        status_icon = "🟢"
+                    else:
+                        status_color = "#ffa421"
+                        status_icon = "🟠"
+                    
+                    # ═══════════════════════════════════════════════════
+                    # CARTE (expander)
+                    # ═══════════════════════════════════════════════════
+                    with st.expander(f"{status_icon} {module} | Qté: {qte} | Shift {shift} | ID: {id_d}"):
+                        
+                        # Info mta3 el demande
+                        st.markdown(f"""
+                            <div style='
+                                background-color: {bg_color};
+                                border-left: 5px solid {border_color};
+                                padding: 15px;
+                                border-radius: 5px;
+                                margin: 5px 0;
+                            '>
+                                <h4 style='color: {border_color}; margin-top: 0;'>📦 {module}</h4>
+                                <table style='width: 100%; color: white;'>
+                                    <tr><td><b>ID:</b></td><td>#{id_d}</td></tr>
+                                    <tr><td><b>Quantité:</b></td><td>{qte} unités</td></tr>
+                                    <tr><td><b>Urgence:</b></td><td><span style='color: {border_color};'>● {urgence}</span></td></tr>
+                                    <tr><td><b>Statut:</b></td><td><span style='color: {status_color};'>{status_icon} {statut}</span></td></tr>
+                                    <tr><td><b>Shift:</b></td><td>{shift}</td></tr>
+                                    <tr><td><b>Opérateur:</b></td><td>{operateur}</td></tr>
+                                    <tr><td><b>Date besoin:</b></td><td>{date_besoin}</td></tr>
+                                    <tr><td><b>Heure demande:</b></td><td>{heure_demande}</td></tr>
+                                </table>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Boutons d'action
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("🔄 Rafraîchir", key=f"refresh_suivi_{id_d}", use_container_width=True):
+                                st.rerun()
+                        
+                        with col2:
+                            if st.button("🗑️ Archiver", key=f"archive_{id_d}", use_container_width=True):
+                                # Archiver via API
+                                try:
+                                    arch_response = requests.post(
+                                        f"{API_URL}/api/archiver_demande",
+                                        json={"demande_id": id_d},
+                                        timeout=10
+                                    )
+                                    if arch_response.status_code == 200:
+                                        st.success("Demande archivée!")
+                                        st.rerun()
+                                    else:
+                                        st.error("Erreur archivage")
+                                except:
+                                    st.error("API indisponible")
+                
+            else:
+                st.success("✅ Aucune production en cours ou en attente.")
         else:
-            st.success(" Aucune production en attente.")
+            st.info("📭 Aucune donnée dans la base enligne.")
     else:
-        st.success(" Aucune production en attente.")
+        st.error(f"❌ Erreur API: {response.status_code}")
+
+except requests.exceptions.ConnectionError:
+    st.error("❌ Impossible de se connecter à l'API. Vérifiez que le serveur est en ligne.")
+    st.info(f"💡 URL API: {API_URL}")
 except Exception as e:
-    st.error(f"Erreur de lecture du suivi: {e}")
+    st.error(f"❌ Erreur: {e}")
 
 # ═══════════════════════════════════════════════════════════════════
 # PRÉPARATION DE COMMANDE (PANIER)
