@@ -146,10 +146,6 @@ try:
 except Exception as e:
     st.sidebar.error(f"Erreur historique: {e}")
 
-# DECONNEXION
-if st.sidebar.button("Déconnexion", use_container_width=True):
-    st.session_state.logged_in = False
-    st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════
 # INTERFACE PRINCIPALE
@@ -183,21 +179,47 @@ else:
 # --- SUIVI TEMPS RÉEL (mil API) ---
 st.subheader(" Suivi des fabrications en temps réel")
 
-try:
-    if demandes:
-        df_suivi = pd.DataFrame(demandes)
-        df_suivi = df_suivi[df_suivi['statut'].str.contains('En attente|En cours', na=False, regex=True)]
-        
-        if not df_suivi.empty:
-            cols = ['reference', 'quantite', 'urgence', 'statut', 'operateur_id']
-            cols_dispo = [c for c in cols if c in df_suivi.columns]
-            st.dataframe(df_suivi[cols_dispo], use_container_width=True, hide_index=True)
-        else:
-            st.success(" Aucune production en attente.")
-    else:
-        st.success(" Aucune production en attente.")
-except Exception as e:
-    st.error(f"Erreur de lecture du suivi: {e}")
+def get_tasks_api(shift):
+    try:
+        response = requests.get(f"{API_URL}/api/operateur_tasks?shift={shift}", timeout=10)
+        if response.status_code == 200:
+            return response.json().get("tasks", [])
+    except Exception as e:
+        st.error(f"Erreur connexion API: {e}")
+    return []
+
+def start_production_api(demande_id, operateur_id):
+    try:
+        response = requests.post(
+            f"{API_URL}/api/start_production",
+            json={"demande_id": demande_id, "operateur_id": operateur_id},
+            timeout=10
+        )
+        return response.status_code == 200
+    except:
+        return False
+
+def terminer_production_api(demande_id):
+    try:
+        response = requests.post(
+            f"{API_URL}/api/terminer_production",
+            json={"demande_id": demande_id},
+            timeout=10
+        )
+        return response.status_code == 200
+    except:
+        return False
+
+def signal_panne_api(operateur_id, cause):
+    try:
+        response = requests.post(
+            f"{API_URL}/api/signal_panne",
+            json={"operateur_id": operateur_id, "cause": cause},
+            timeout=10
+        )
+        return response.status_code == 200
+    except:
+        return False
 
 # ═══════════════════════════════════════════════════════════════════
 # PRÉPARATION DE COMMANDE (PANIER)
