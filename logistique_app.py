@@ -177,8 +177,6 @@ else:
 
 # --- SUIVI TEMPS RÉEL (mil API) ---
 st.subheader(" Suivi des fabrications en temps réel")
-tasks = get_tasks_api(shift)
-
 if tasks:
     for task in tasks:
         id_d = task["id"]
