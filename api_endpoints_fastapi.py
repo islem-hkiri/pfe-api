@@ -25,23 +25,23 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     # Table Demandes
-    cursor.execute('''CREATE TABLE IF NOT EXISTS Demandes (
+    cursor.execute("""CREATE TABLE IF NOT EXISTS Demandes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         reference TEXT, quantite INTEGER, date_besoin TEXT,
         shift TEXT, statut TEXT, urgence TEXT, heure_demande TEXT,
-        debut_production TEXT, fin_production TEXT, operateur_id TEXT)''')
+        debut_production TEXT, fin_production TEXT, operateur_id TEXT)""")
     # Table Pannes
-    cursor.execute('''CREATE TABLE IF NOT EXISTS Pannes (
+    cursor.execute("""CREATE TABLE IF NOT EXISTS Pannes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cause TEXT, operateur_id TEXT, debut_panne TEXT, 
-        fin_panne TEXT, statut TEXT)''')
+        fin_panne TEXT, statut TEXT)""")
     # Table Stock
-    cursor.execute('''CREATE TABLE IF NOT EXISTS Stock (
-        reference TEXT PRIMARY KEY, quantite INTEGER)''')
+    cursor.execute("""CREATE TABLE IF NOT EXISTS Stock (
+        reference TEXT PRIMARY KEY, quantite INTEGER)""")
     # Table EtatMachine
-    cursor.execute('''CREATE TABLE IF NOT EXISTS EtatMachine (
+    cursor.execute("""CREATE TABLE IF NOT EXISTS EtatMachine (
         shift TEXT PRIMARY KEY, compteur_actuel INTEGER, 
-        demande_id INTEGER, last_update TEXT)''')
+        demande_id INTEGER, last_update TEXT)""")
     conn.commit()
     conn.close()
 
@@ -77,21 +77,22 @@ class ProductionEnd(BaseModel):
 class ConnectionManager:
     def __init__(self):
         self.active_connections = {}
-    
+
     async def connect(self, websocket: WebSocket, shift: str):
         await websocket.accept()
         self.active_connections[shift] = websocket
         print(f"✅ Carte {shift} connectée")
-    
+
     def disconnect(self, shift: str):
         if shift in self.active_connections:
             del self.active_connections[shift]
             print(f"❌ Carte {shift} déconnectée")
-    
+
     async def send_message(self, shift: str, message: str):
         if shift in self.active_connections:
             try:
                 await self.active_connections[shift].send_text(message)
+                print(f"📤 Envoyé à {shift}: {message}")
                 return True
             except:
                 self.disconnect(shift)
@@ -107,84 +108,110 @@ def get_status_from_db(shift: str):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND statut LIKE '%En cours%' LIMIT 1", (shift,))
+        cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours') LIMIT 1", (shift,))
         en_cours = cursor.fetchone()
-        cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND statut LIKE '%attente%' LIMIT 1", (shift,))
+        cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente') LIMIT 1", (shift,))
         attente = cursor.fetchone()
         conn.close()
         if en_cours: return "🟢En cours"
         if attente: return "🟠En attente"
         return "Libre"
-    except:
+    except Exception as e:
+        print(f"❌ Erreur DB: {e}")
         return "Libre"
 
 async def send_status_to_card(shift: str):
     status = get_status_from_db(shift)
     await manager.send_message(shift, status)
+    return status
 
 def increment_sync(shift: str):
+    print(f"➕ INCREMENT pour shift {shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     # 1. Chercher si une demande est déjà en cours
-    cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND statut LIKE '%En cours%' LIMIT 1", (shift,))
+    cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours') LIMIT 1", (shift,))
     demande = cursor.fetchone()
-    
+
     if not demande:
         # 2. Sinon, prendre la prochaine en attente
-        cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND statut LIKE '%attente%' ORDER BY id ASC LIMIT 1", (shift,))
+        cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente') ORDER BY id ASC LIMIT 1", (shift,))
         demande = cursor.fetchone()
         if not demande:
             conn.close()
-            return {"success": False, "message": "Rien à produire"}
-        
+            print("❌ Aucune demande en attente")
+            return {"success": False, "message": "Aucune demande en attente"}
+
         demande_id, qte_totale, ref = demande
         cursor.execute("UPDATE Demandes SET statut = '🟢En cours', debut_production = datetime('now') WHERE id = ?", (demande_id,))
-        cursor.execute("INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update) VALUES (?, 0, ?, datetime('now')) ON CONFLICT(shift) DO UPDATE SET compteur_actuel=0, demande_id=?", (shift, demande_id, demande_id))
+        cursor.execute("INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update) VALUES (?, 0, ?, datetime('now')) ON CONFLICT(shift) DO UPDATE SET compteur_actuel=0, demande_id=?, last_update=datetime('now')", (shift, demande_id, demande_id))
         compteur = 1
+        print(f"🚀 Production démarrée: {ref} - Quantité à produire: {qte_totale}")
     else:
         demande_id, qte_totale, ref = demande
         cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (shift,))
         row = cursor.fetchone()
         compteur = (row[0] if row else 0) + 1
-    
+        print(f"📊 Progression: {compteur}/{qte_totale}")
+
+    # Vérifier si on dépasse la quantité
+    if compteur > qte_totale:
+        conn.close()
+        print(f"⚠️ Compteur déjà à {compteur-1}/{qte_totale} - Incrément ignoré")
+        return {"success": False, "message": f"Quantité maximale {qte_totale} atteinte"}
+
     # Mettre à jour le compteur
     cursor.execute("UPDATE EtatMachine SET compteur_actuel = ?, last_update = datetime('now') WHERE shift = ?", (compteur, shift))
-    
+
     # Vérifier si fini
     termine = (compteur >= qte_totale)
     if termine:
         cursor.execute("UPDATE Demandes SET statut = '✅ Terminé', fin_production = datetime('now') WHERE id = ?", (demande_id,))
         cursor.execute("INSERT INTO Stock (reference, quantite) VALUES (?, ?) ON CONFLICT(reference) DO UPDATE SET quantite = Stock.quantite + ?", (ref, qte_totale, qte_totale))
         cursor.execute("UPDATE EtatMachine SET compteur_actuel = 0, demande_id = NULL WHERE shift = ?", (shift,))
+        print(f"✅ Production TERMINÉE! {qte_totale} unités de {ref}")
+
+        # 🔄 AUTO-DÉMARRAGE prochaine demande
+        cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente') ORDER BY id ASC LIMIT 1", (shift,))
+        next_demande = cursor.fetchone()
+
+        if next_demande:
+            next_id, next_qte, next_ref = next_demande
+            cursor.execute("UPDATE Demandes SET statut = '🟢En cours', debut_production = datetime('now') WHERE id = ?", (next_id,))
+            cursor.execute("INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update) VALUES (?, 0, ?, datetime('now')) ON CONFLICT(shift) DO UPDATE SET compteur_actuel=0, demande_id=?, last_update=datetime('now')", (shift, next_id, next_id))
+            print(f"🔄 Auto-démarrage demande {next_ref} (Quantité: {next_qte})")
 
     conn.commit()
     conn.close()
-    return {"success": True, "compteur": compteur, "termine": termine}
+    return {"success": True, "compteur": compteur, "Qté": qte_totale, "termine": termine}
 
 def decrement_sync(shift: str):
     print(f"➖ DECREMENT pour shift {shift}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
-    cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND statut LIKE '%En cours%' LIMIT 1", (shift,))
+
+    cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND (statut = '🟢En cours' OR statut = 'En cours') LIMIT 1", (shift,))
     en_cours = cursor.fetchone()
-    
+
     if not en_cours:
         conn.close()
+        print("❌ Aucune production en cours")
         return {"success": False, "message": "Aucune production en cours"}
-    
+
     cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (shift,))
     row = cursor.fetchone()
-    
+
     if row and row[0] > 0:
         nouveau = row[0] - 1
         cursor.execute("UPDATE EtatMachine SET compteur_actuel = ?, last_update = datetime('now') WHERE shift = ?", (nouveau, shift))
         conn.commit()
         conn.close()
+        print(f"📉 Compteur diminué à: {nouveau}")
         return {"success": True, "compteur": nouveau}
-    
+
     conn.close()
+    print("❌ Compteur déjà à zéro")
     return {"success": False, "message": "Compteur déjà à zéro"}
 
 # ═══════════════════════════════════════════════════════════════════
@@ -272,6 +299,14 @@ async def start_production(data: ProductionStart):
     """, (data.operateur_id, data.demande_id))
     conn.commit()
     conn.close()
+    # Récupérer le shift pour notifier la carte
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT shift FROM Demandes WHERE id = ?", (data.demande_id,))
+    row = cursor.fetchone()
+    shift = row[0] if row else "B"
+    conn.close()
+    await send_status_to_card(shift)
     return {"success": True, "message": "Production démarrée"}
 
 @app.post("/api/terminer_production")
@@ -304,6 +339,7 @@ async def signal_panne(data: PanneCreate):
 @app.get("/api/etat")
 async def get_etat(shift: str = "B"):
     status = get_status_from_db(shift)
+    await send_status_to_card(shift)
     return {"statut": status, "machine_disponible": (status == "Libre")}
 
 @app.post("/api/increment")
@@ -325,16 +361,31 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
     try:
         while True:
             data = await websocket.receive_text()
+            print(f"📨 Reçu de {shift}: {data}")
+
             if data == "ping":
                 await websocket.send_text("pong")
-            elif data == "increment":
-                increment_sync(shift)
-                await send_status_to_card(shift)
-            elif data == "decrement":
-                decrement_sync(shift)
-                await send_status_to_card(shift)
+                print("💓 Pong envoyé")
+
             elif data == "get_status":
+                print("🔄 Demande de statut reçue")
                 await send_status_to_card(shift)
+
+            elif data == "increment":
+                print("➕ Traitement increment...")
+                result = increment_sync(shift)
+                print(f"Résultat increment: {result}")
+                await send_status_to_card(shift)
+
+            elif data == "decrement":
+                print("➖ Traitement decrement...")
+                result = decrement_sync(shift)
+                print(f"Résultat decrement: {result}")
+                await send_status_to_card(shift)
+
+            else:
+                print(f"📝 Message non reconnu: {data}")
+
     except WebSocketDisconnect:
         manager.disconnect(shift)
 
@@ -349,4 +400,9 @@ def debug():
 
 if __name__ == "__main__":
     import uvicorn
+    print("="*50)
+    print("🚀 SERVEUR DÉMARRÉ")
+    print(f"📡 HTTP: http://localhost:8000")
+    print(f"🔌 WebSocket: ws://localhost:8000/ws/{{shift}}")
+    print("="*50)
     uvicorn.run(app, host="0.0.0.0", port=8000)
