@@ -25,10 +25,9 @@ st_autorefresh(interval=5000, key="log_refresh")
 # --- POSITION CORRIGÉE ---
 st.sidebar.title(" Tableau de Bord")
 
-# Déplace cette ligne ICI (avant les calculs)
+# Maintenant 'conn' existe et peut être utilisé
 conn = sqlite3.connect(DB_PATH) 
 
-# Maintenant 'conn' existe et peut être utilisé
 total = conn.execute("SELECT COUNT(*) FROM Demandes").fetchone()[0]
 termine = conn.execute("SELECT COUNT(*) FROM Demandes WHERE statut='Terminé'").fetchone()[0]
 

@@ -369,58 +369,35 @@ def debug():
     data = cursor.fetchall()
     conn.close()
     return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
-@app.post("/api/create_demande")
-async def create_demande(data: DemandeCreate):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+# Fil API (Render)
+@app.route('/api/create_demande', methods=['POST'])
+def create_demande():
+    data = request.get_json()
+    # Sauvegarder fil base de données SQLite 3al server
+    # ...
+    return jsonify({"status": "success"})
 
-    cursor.execute("""
-        INSERT INTO Demandes 
-        (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
-        VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
-    """, (
-        data.reference,
-        data.quantite,
-        data.date_besoin,
-        data.shift,
-        data.urgence
-    ))
+@app.route('/api/operateur_tasks', methods=['GET'])
+def get_tasks():
+    shift = request.args.get('shift')
+    # Lire mil base de données
+    # ...
+    return jsonify({"tasks": tasks})
 
-    conn.commit()
-    conn.close()
+@app.route('/api/start_production', methods=['POST'])
+def start_production():
+    # ...
+    return jsonify({"status": "success"})
 
-    # 🔥 Mise à jour temps réel vers ESP32
-    await send_status_to_card(data.shift)
+@app.route('/api/terminer_production', methods=['POST'])
+def terminer_production():
+    # ...
+    return jsonify({"status": "success"})
 
-    return {"success": True}
-@app.get("/api/operateur_tasks")
-def operateur_tasks(shift: str = "B"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT id, reference, quantite, statut, shift
-        FROM Demandes
-        WHERE shift = ?
-        AND statut NOT IN ('✅ Terminé','Archive')
-        ORDER BY id ASC
-    """, (shift,))
-
-    rows = cursor.fetchall()
-    conn.close()
-
-    return {
-        "tasks": [
-            {
-                "id": r[0],
-                "reference": r[1],
-                "quantite": r[2],
-                "statut": r[3],
-                "shift": r[4]
-            }
-            for r in rows
-        ]
-    }
+@app.route('/api/signal_panne', methods=['POST'])
+def signal_panne():
+    # ...
+    return jsonify({"status": "success"})
 if __name__ == "__main__":
     import uvicorn
     print("="*50)
