@@ -177,60 +177,22 @@ else:
 
 # --- SUIVI TEMPS RÉEL (mil API) ---
 st.subheader(" Suivi des fabrications en temps réel")
-if tasks:
-    for task in tasks:
-        id_d = task["id"]
-        module = task.get("reference", "N/A")
-        qte = task["quantite"]
-        statut = task["statut"]
-        urgence = task.get("urgence", "Normal")
 
-        # Couleur selon urgence
-        if urgence == "Critique":
-            border_color = "#ff4b4b"
-        elif urgence == "Urgent":
-            border_color = "#ffa421"
+try:
+    if demandes:
+        df_suivi = pd.DataFrame(demandes)
+        df_suivi = df_suivi[df_suivi['statut'].str.contains('En attente|En cours', na=False, regex=True)]
+        
+        if not df_suivi.empty:
+            cols = ['reference', 'quantite', 'urgence', 'statut', 'operateur_id']
+            cols_dispo = [c for c in cols if c in df_suivi.columns]
+            st.dataframe(df_suivi[cols_dispo], use_container_width=True, hide_index=True)
         else:
-            border_color = "#262730"
-
-        with st.expander(f"{module} | Qte {qte} | ID {id_d} | {urgence}"):
-            st.markdown(f"""
-                <div style='border-left: 4px solid {border_color}; padding-left: 10px;'>
-                    <b>Référence:</b> {module}<br>
-                    <b>Quantité:</b> {qte}<br>
-                    <b>Urgence:</b> {urgence}<br>
-                    <b>Statut:</b> {statut}
-                </div>
-            """, unsafe_allow_html=True)
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if "En cours" in statut:
-                    st.button("Production en cours", disabled=True, key=f"disabled_{id_d}")
-                else:
-                    if st.button("Lancer production", key=f"start_{id_d}"):
-                        if id_op_saisie:
-                            if start_production_api(id_d, id_op_saisie):
-                                st.success("Production démarrée !")
-                                st.rerun()
-                            else:
-                                st.error("Erreur lors du démarrage")
-                        else:
-                            st.warning("Entrez votre ID d'abord !")
-
-            with col2:
-                if st.button("Terminer", key=f"end_{id_d}"):
-                    if terminer_production_api(id_d):
-                        st.success("Production terminée !")
-                        st.rerun()
-                    else:
-                        st.error("Erreur lors de la terminaison")
-
-            if "En attente" in statut:
-                st.warning("🟠 EN ATTENTE")
-            elif "En cours" in statut:
-                st.info("🟢 EN COURS")
+            st.success(" Aucune production en attente.")
+    else:
+        st.success(" Aucune production en attente.")
+except Exception as e:
+    st.error(f"Erreur de lecture du suivi: {e}")
 
 # ═══════════════════════════════════════════════════════════════════
 # PRÉPARATION DE COMMANDE (PANIER)
