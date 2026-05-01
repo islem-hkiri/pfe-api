@@ -162,6 +162,31 @@ def increment_sync(shift: str):
     conn.close()
     return {"success": True, "compteur": compteur, "termine": termine}
 
+def decrement_sync(shift: str):
+    print(f"➖ DECREMENT pour shift {shift}")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id FROM Demandes WHERE shift = ? AND statut LIKE '%En cours%' LIMIT 1", (shift,))
+    en_cours = cursor.fetchone()
+    
+    if not en_cours:
+        conn.close()
+        return {"success": False, "message": "Aucune production en cours"}
+    
+    cursor.execute("SELECT compteur_actuel FROM EtatMachine WHERE shift = ?", (shift,))
+    row = cursor.fetchone()
+    
+    if row and row[0] > 0:
+        nouveau = row[0] - 1
+        cursor.execute("UPDATE EtatMachine SET compteur_actuel = ?, last_update = datetime('now') WHERE shift = ?", (nouveau, shift))
+        conn.commit()
+        conn.close()
+        return {"success": True, "compteur": nouveau}
+    
+    conn.close()
+    return {"success": False, "message": "Compteur déjà à zéro"}
+
 # ═══════════════════════════════════════════════════════════════════
 # ENDPOINTS API (Pour Streamlit et ESP)
 # ═══════════════════════════════════════════════════════════════════
@@ -287,6 +312,12 @@ async def increment(req: ShiftRequest):
     await send_status_to_card(req.shift)
     return res
 
+@app.post("/api/decrement")
+async def decrement(req: ShiftRequest):
+    res = decrement_sync(req.shift)
+    await send_status_to_card(req.shift)
+    return res
+
 @app.websocket("/ws/{shift}")
 async def websocket_endpoint(websocket: WebSocket, shift: str):
     await manager.connect(websocket, shift)
@@ -294,13 +325,27 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
     try:
         while True:
             data = await websocket.receive_text()
-            if data == "increment":
+            if data == "ping":
+                await websocket.send_text("pong")
+            elif data == "increment":
                 increment_sync(shift)
+                await send_status_to_card(shift)
+            elif data == "decrement":
+                decrement_sync(shift)
                 await send_status_to_card(shift)
             elif data == "get_status":
                 await send_status_to_card(shift)
     except WebSocketDisconnect:
         manager.disconnect(shift)
+
+@app.get("/api/debug")
+def debug():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, shift, statut, quantite FROM Demandes LIMIT 10")
+    data = cursor.fetchall()
+    conn.close()
+    return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
 
 if __name__ == "__main__":
     import uvicorn
