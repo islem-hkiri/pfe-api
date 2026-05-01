@@ -5,32 +5,27 @@ import os
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 
-# Configuration de base
+# Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
 st.set_page_config(page_title="Poste Soudure Ultrasons")
 
-# Auto-refresh
+# Auto-refresh kol 5 secondes besh ychouf les demandes jdid
 st_autorefresh(interval=5000, key="main_refresh")
 
-# Initialisation de session
+# Session state pour les clés uniques
 if 'task_counter' not in st.session_state:
     st.session_state.task_counter = 0
 
-# Fonction pour générer des clés uniques
 def generate_unique_key(base_name):
     st.session_state.task_counter += 1
     return f"{base_name}_{st.session_state.task_counter}"
 
-# Sidebar - Identification
+# SIDEBAR - Identification
 with st.sidebar:
-    st.title("Identification")
-    id_op_saisie = st.text_input("ID Opérateur (Saisie)", key="operateur_id")
+    st.title("🔧 Identification")
+    id_op_saisie = st.text_input("ID Opérateur", key="operateur_id")
     shift = st.radio("Shift", ["A", "B"], key="shift_selection", horizontal=True)
-    
-  #  if st.button("Déconnexion", key="logout_btn"):
-   #     st.session_state.clear()
-    #    st.rerun()
     
     # Signalement de panne
     st.subheader("⚠️ Signalement Panne")
@@ -46,7 +41,7 @@ with st.sidebar:
                         VALUES (?, ?, datetime('now'), '🔴 Ouvert')
                     """, (id_op_saisie, cause))
                     conn.commit()
-                    st.error("Panne signalée au superviseur !")
+                    st.success("Panne signalée !")
                 except Exception as e:
                     st.error(f"Erreur: {str(e)}")
                 finally:
@@ -54,8 +49,8 @@ with st.sidebar:
             else:
                 st.warning("Saisir ID opérateur + cause")
 
-    # Historique
-    with st.expander("Historique"):
+    # Historique local
+    with st.expander("📜 Historique"):
         try:
             conn = sqlite3.connect(DB_PATH)
             query = """
@@ -82,58 +77,66 @@ with st.sidebar:
                     "Module","Opérateur","Début","Fin","Durée(s)","Pression","Temps","Amplitude"
                 ])
                 st.dataframe(df, use_container_width=True)
-
-                if st.button("Effacer l'historique", key="clear_history_btn"):
-                    conn.execute("""
-                    UPDATE Demandes 
-                    SET statut = 'Archivé' 
-                    WHERE shift = ? AND statut = 'Terminé'
-                    """, (shift,))
-                    conn.commit()
-                    st.rerun()
             else:
-                st.info("Aucune tâche terminée récemment")
+                st.info("Aucune tâche terminée")
         except Exception as e:
-            st.error(f"Erreur base de données: {str(e)}")
+            st.error(f"Erreur: {str(e)}")
         finally:
             conn.close()
 
-# Interface principale
-st.title(f"Poste Soudure Ultrasons - Shift {shift}")
+# INTERFACE PRINCIPALE - AFFICHAGE DES DEMANDES
+st.title(f"🎯 Poste Soudure Ultrasons - Shift {shift}")
 
 try:
     conn = sqlite3.connect(DB_PATH)
+    
+    # HETHI IL REQUETTE LIL LECTURE - T9RA LES DEMANDES MIL LOGISTIQUE
     query = """
     SELECT 
         d.id,
         p.famille,
         p.module,
         d.quantite,
-        d.statut,
+        d.statut,  -- HETHI T AFFICHI IL STATUS (En attente/En cours/Terminé)
         p.pression,
-        IFNULL(p.temps,0),
-        IFNULL(p.amplitude,0),
-        d.date_besoin
+        IFNULL(p.temps,0) as temps,
+        IFNULL(p.amplitude,0) as amplitude,
+        d.date_besoin,
+        d.urgence
     FROM Demandes d
     JOIN Produits p ON d.reference = p.reference
     WHERE d.shift = ?
     AND d.statut NOT IN ('Terminé','Archivé')
-    ORDER BY d.date_besoin ASC
+    ORDER BY 
+        CASE d.urgence 
+            WHEN 'Critique' THEN 1 
+            WHEN 'Urgent' THEN 2 
+            ELSE 3 
+        END,
+        d.date_besoin ASC
     """
+    
     tasks = conn.execute(query, (shift,)).fetchall()
 
-    if tasks:
+    if not tasks:
+        st.info("📭 Aucune demande en attente pour ce shift")
+    else:
+        st.write(f"📋 {len(tasks)} demande(s) à traiter")
+        
         for task in tasks:
-            id_d, fam, mod, qte, stat, press, temps, amp, date_b = task
+            id_d, fam, mod, qte, stat, press, temps, amp, date_b, urgence = task
             
-            with st.expander(f"{mod} | {fam} | Qté {qte} (ID: {id_d})"):
+            # Color coding selon l'urgence
+            urgence_color = "🔴" if urgence == "Critique" else "🟠" if urgence == "Urgent" else "🟢"
+            
+            with st.expander(f"{urgence_color} {mod} | {fam} | Qté: {qte} | Status: {stat}"):
                 cols = st.columns([1, 1, 2])
                 
                 with cols[0]:
                     if st.button(
-                        "Lancer production", 
-                        key=f"start_prod_{id_d}_{shift}",
-                        help=f"Démarrer la production de {mod}"
+                        "▶️ Lancer", 
+                        key=f"start_prod_{id_d}",
+                        disabled=(stat == '🟢En cours')
                     ):
                         conn.execute("""
                             UPDATE Demandes
@@ -146,37 +149,40 @@ try:
                         st.rerun()
                 
                 with cols[1]:
-                    if st.button("Terminer", key=f"end_{id_d}"):
-                        # Nesta3mlou 'qte' elli jebneha mel task
-                        qte_a_ajouter = qte 
-        
-                        # Update Stock
+                    if st.button("✅ Terminer", key=f"end_{id_d}", disabled=(stat != '🟢En cours')):
+                        # Mise à jour stock
                         conn.execute("""
                             UPDATE Stock 
                             SET quantite = quantite + ? 
                             WHERE reference = (SELECT reference FROM Demandes WHERE id=?)
-                        """, (qte_a_ajouter, id_d))
-        # Update Statut Demande
+                        """, (qte, id_d))
+                        
+                        # Mise à jour statut
                         conn.execute("""
                             UPDATE Demandes 
-                            SET statut='Terminé', fin_production=datetime('now') 
+                            SET statut='Terminé', 
+                                fin_production=datetime('now') 
                             WHERE id=?
                         """, (id_d,))
-        
+                        
                         conn.commit()
+                        st.success("Production terminée!")
                         st.rerun()
                 
                 with cols[2]:
-                    st.write(f"**Statut:** {stat}")
-                
+                    st.write(f"**📊 Status Actuel:** `{stat}`")
+                    st.write(f"**📅 Date besoin:** {date_b}")
+                    st.write(f"**⚡ Urgence:** {urgence}")
+                    
                     st.markdown("""
-                    **Paramètres soudure automatiques:**
-                    - **Pression:** {} bar
-                    - **Temps:** {} s
-                    - **Amplitude:** {} %
-                """.format(press if press else '~', temps if temps else '~', amp if amp else '~'))
+                    **🔧 Paramètres soudure:**
+                    - Pression: {} bar
+                    - Temps: {} s  
+                    - Amplitude: {} %
+                    """.format(press if press else '~', temps if temps else '~', amp if amp else '~'))
        
 except Exception as e:
-    st.error(f"Erreur lors de la récupération des tâches: {str(e)}")
+    st.error(f"❌ Erreur lors de la récupération des tâches: {str(e)}")
 finally:
-    conn.close()
+    if 'conn' in locals():
+        conn.close()
