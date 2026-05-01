@@ -1,15 +1,10 @@
 streamlit
 pandas
 openpyxl
-flask
 requests
 streamlit-autorefresh
 pyarrow
 fastapi
 uvicorn
-sqlalchemy
-fastapi
-uvicorn
 python-multipart
 websockets
-python-socketio
