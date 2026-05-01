@@ -45,6 +45,7 @@ def get_pannes_api():
         pass
     return []
 
+
 def create_demande_api(data):
     try:
         response = requests.post(f"{API_URL}/api/create_demande", json=data, timeout=10)
@@ -120,6 +121,29 @@ else:
     st.sidebar.metric("Total demandes", 0)
     st.sidebar.metric("Terminées", 0)
     st.sidebar.metric("Temps moyen (s)", "0")
+st.sidebar.markdown("---")
+st.sidebar.subheader(" Performance (KPI)")
+
+# le temps totale du travail
+TEMPS_SHIFT_SEC = 8 * 3600 
+
+df_occ = pd.read_sql_query("""
+SELECT SUM(strftime('%s', fin_production) - strftime('%s', debut_production)) as total_prod
+FROM Demandes WHERE statut='Terminé' AND date(fin_production) = date('now')
+""", conn)
+
+if not df_occ.empty and df_occ['total_prod'].iloc[0] is not None:
+    total_sec = df_occ['total_prod'].iloc[0]
+    taux = (total_sec / TEMPS_SHIFT_SEC) * 100
+    taux_clean = min(int(taux), 100)
+    
+    st.sidebar.metric("Taux d'Occupation Jour", f"{taux_clean}%")
+    st.sidebar.progress(taux_clean / 100)
+    
+    if taux > 85:
+        st.sidebar.warning(" Charge élevée détectée !")
+else:
+    st.sidebar.info("Attente de données de production...")
 
 # Historique
 st.sidebar.markdown("---")
