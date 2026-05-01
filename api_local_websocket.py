@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sqlite3
@@ -128,6 +128,7 @@ async def websocket_endpoint(websocket: WebSocket, shift: str):
                 
     except WebSocketDisconnect:
         manager.disconnect(shift)
+
 def increment_sync(req: ShiftRequest):
     print(f"➕ INCREMENT pour shift {req.shift}")
     conn = sqlite3.connect(DB_PATH)
@@ -219,6 +220,9 @@ def increment_sync(req: ShiftRequest):
         
         print(f"✅ Production TERMINÉE! {Qté} unités de {ref}")
         
+        # ==========================================
+        # 🔄 AUTO-DEMARRAGE prochaine demande
+        # ==========================================
         cursor.execute("""
             SELECT id, quantite, reference
             FROM Demandes
@@ -229,48 +233,6 @@ def increment_sync(req: ShiftRequest):
         next_demande = cursor.fetchone()
         
         if next_demande:
-            next_id, next_qte, next_ref = next_demande
-            
-            cursor.execute("""
-                UPDATE Demandes
-                SET statut = '🟢En cours',
-                    debut_production = datetime('now')
-                WHERE id = ?
-            """, (next_id,))
-            
-            cursor.execute("""
-                INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update)
-                VALUES (?, 0, ?, datetime('now'))
-                ON CONFLICT(shift) DO UPDATE
-                SET compteur_actuel = 0, demande_id = ?, last_update = datetime('now')
-            """, (req.shift, next_id, next_id))
-            
-            print(f"🔄 Auto-démarrage demande {next_ref} (Quantité: {next_qte})")
-            conn.commit()
-    
-    conn.commit()
-    conn.close()
-    
-    return {
-        "success": True,
-        "compteur": compteur,
-        "Qté": Qté,
-        "termine": termine
-    }
-        
-        # ==========================================
-        # 🔄 AUTO-DEMARRAGE prochaine demande
-        # ==========================================
-    cursor.execute("""
-            SELECT id, quantite, reference
-            FROM Demandes
-            WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
-            ORDER BY id ASC
-            LIMIT 1
-        """, (req.shift,))
-    next_demande = cursor.fetchone()
-        
-    if next_demande:
             next_id, next_qte, next_ref = next_demande
             
             cursor.execute("""
@@ -344,10 +306,9 @@ def root():
 
 @app.get("/api/etat")
 async def get_etat(shift: str = "B"):
-        status = get_status_from_db(shift)
-        await send_status_to_card(shift)
-        return {"statut": status, "machine_disponible": (status == "Libre")}
-        
+    status = get_status_from_db(shift)
+    await send_status_to_card(shift)
+    return {"statut": status, "machine_disponible": (status == "Libre")}
 
 @app.post("/api/increment")
 async def increment(req: ShiftRequest):
@@ -369,35 +330,132 @@ def debug():
     data = cursor.fetchall()
     conn.close()
     return {"demandes": [{"id": d[0], "shift": d[1], "statut": d[2], "Qté": d[3]} for d in data]}
-# Fil API (Render)
-@app.route('/api/create_demande', methods=['POST'])
-def create_demande():
-    data = request.get_json()
-    # Sauvegarder fil base de données SQLite 3al server
-    # ...
-    return jsonify({"status": "success"})
 
-@app.route('/api/operateur_tasks', methods=['GET'])
-def get_tasks():
-    shift = request.args.get('shift')
-    # Lire mil base de données
-    # ...
-    return jsonify({"tasks": tasks})
+# ==========================================
+# ROUTES LIL LOGISTIQUE W OPERATEUR (FastAPI)
+# ==========================================
 
-@app.route('/api/start_production', methods=['POST'])
-def start_production():
-    # ...
-    return jsonify({"status": "success"})
+@app.post('/api/create_demande')
+async def create_demande(demande: DemandeCreate):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO Demandes (reference, quantite, date_besoin, shift, urgence, statut, heure_demande)
+            VALUES (?, ?, ?, ?, ?, '🟠En attente', datetime('now'))
+        """, (demande.reference, demande.quantite, demande.date_besoin, demande.shift, demande.urgence))
+        
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Demande créée"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-@app.route('/api/terminer_production', methods=['POST'])
-def terminer_production():
-    # ...
-    return jsonify({"status": "success"})
+@app.get('/api/operateur_tasks')
+def get_tasks(shift: str):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, reference, quantite, statut, urgence 
+            FROM Demandes 
+            WHERE shift = ? AND (statut = '🟠En attente' OR statut = '🟢En cours' OR statut = 'En attente' OR statut = 'En cours')
+            ORDER BY 
+                CASE urgence
+                    WHEN 'Critique' THEN 1
+                    WHEN 'Urgent' THEN 2
+                    WHEN 'Normal' THEN 3
+                    ELSE 4
+                END,
+                id ASC
+        """, (shift,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        tasks = []
+        for row in rows:
+            tasks.append({
+                "id": row[0],
+                "reference": row[1],
+                "quantite": row[2],
+                "statut": row[3],
+                "urgence": row[4]
+            })
+        
+        return {"tasks": tasks}
+    except Exception as e:
+        return {"tasks": [], "error": str(e)}
 
-@app.route('/api/signal_panne', methods=['POST'])
-def signal_panne():
-    # ...
-    return jsonify({"status": "success"})
+@app.post('/api/start_production')
+async def start_production(request: Request):
+    try:
+        data = await request.json()
+        demande_id = data.get("demande_id")
+        operateur_id = data.get("operateur_id")
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE Demandes 
+            SET statut = '🟢En cours', 
+                debut_production = datetime('now'),
+                operateur_id = ?
+            WHERE id = ?
+        """, (operateur_id, demande_id))
+        
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Production démarrée"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post('/api/terminer_production')
+async def terminer_production(request: Request):
+    try:
+        data = await request.json()
+        demande_id = data.get("demande_id")
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE Demandes 
+            SET statut = '✅ Terminé', 
+                fin_production = datetime('now')
+            WHERE id = ?
+        """, (demande_id,))
+        
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Production terminée"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post('/api/signal_panne')
+async def signal_panne(request: Request):
+    try:
+        data = await request.json()
+        operateur_id = data.get("operateur_id")
+        cause = data.get("cause")
+        
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO Pannes (operateur_id, cause, statut, debut_panne)
+            VALUES (?, ?, '🔴 Ouvert', datetime('now'))
+        """, (operateur_id, cause))
+        
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Panne signalée"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 if __name__ == "__main__":
     import uvicorn
     print("="*50)
