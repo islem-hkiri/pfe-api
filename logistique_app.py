@@ -9,7 +9,7 @@ from datetime import datetime
 st.set_page_config(page_title="Logistique - Supervision (Cloud)")
 
 # --- URL DE TON API RENDER (A VÉRIFIER) ---
-API_BASE = "https://pfe-api-uju4.onrender.com/api" 
+API_BASE = "https://pfe-api-uju4.onrender.com" 
 
 # AUTO REFRESH (5 secondes)
 st_autorefresh(interval=5000, key="log_refresh")
