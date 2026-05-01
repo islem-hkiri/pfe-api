@@ -17,7 +17,7 @@ st.set_page_config(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
-API_BASE = "https://pfe-api-uju4.onrender.com/api"  # Votre API Render
+API_BASE = "https://pfe-api-uju4.onrender.com"  # Votre API Render
 
 # Initialisation DB locale (pour le Stock uniquement)
 if not os.path.exists(DB_PATH):
