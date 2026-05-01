@@ -45,7 +45,6 @@ def get_pannes_api():
         pass
     return []
 
-
 def create_demande_api(data):
     try:
         response = requests.post(f"{API_URL}/api/create_demande", json=data, timeout=10)
@@ -121,29 +120,6 @@ else:
     st.sidebar.metric("Total demandes", 0)
     st.sidebar.metric("Terminées", 0)
     st.sidebar.metric("Temps moyen (s)", "0")
-st.sidebar.markdown("---")
-st.sidebar.subheader(" Performance (KPI)")
-
-# le temps totale du travail
-TEMPS_SHIFT_SEC = 8 * 3600 
-
-df_occ = pd.read_sql_query("""
-SELECT SUM(strftime('%s', fin_production) - strftime('%s', debut_production)) as total_prod
-FROM Demandes WHERE statut='Terminé' AND date(fin_production) = date('now')
-""", conn)
-
-if not df_occ.empty and df_occ['total_prod'].iloc[0] is not None:
-    total_sec = df_occ['total_prod'].iloc[0]
-    taux = (total_sec / TEMPS_SHIFT_SEC) * 100
-    taux_clean = min(int(taux), 100)
-    
-    st.sidebar.metric("Taux d'Occupation Jour", f"{taux_clean}%")
-    st.sidebar.progress(taux_clean / 100)
-    
-    if taux > 85:
-        st.sidebar.warning(" Charge élevée détectée !")
-else:
-    st.sidebar.info("Attente de données de production...")
 
 # Historique
 st.sidebar.markdown("---")
@@ -169,7 +145,6 @@ try:
                         st.dataframe(details, use_container_width=True)
 except Exception as e:
     st.sidebar.error(f"Erreur historique: {e}")
-
 
 # ═══════════════════════════════════════════════════════════════════
 # INTERFACE PRINCIPALE
@@ -203,47 +178,21 @@ else:
 # --- SUIVI TEMPS RÉEL (mil API) ---
 st.subheader(" Suivi des fabrications en temps réel")
 
-def get_tasks_api(shift):
-    try:
-        response = requests.get(f"{API_URL}/api/operateur_tasks?shift={shift}", timeout=10)
-        if response.status_code == 200:
-            return response.json().get("tasks", [])
-    except Exception as e:
-        st.error(f"Erreur connexion API: {e}")
-    return []
-
-def start_production_api(demande_id, operateur_id):
-    try:
-        response = requests.post(
-            f"{API_URL}/api/start_production",
-            json={"demande_id": demande_id, "operateur_id": operateur_id},
-            timeout=10
-        )
-        return response.status_code == 200
-    except:
-        return False
-
-def terminer_production_api(demande_id):
-    try:
-        response = requests.post(
-            f"{API_URL}/api/terminer_production",
-            json={"demande_id": demande_id},
-            timeout=10
-        )
-        return response.status_code == 200
-    except:
-        return False
-
-def signal_panne_api(operateur_id, cause):
-    try:
-        response = requests.post(
-            f"{API_URL}/api/signal_panne",
-            json={"operateur_id": operateur_id, "cause": cause},
-            timeout=10
-        )
-        return response.status_code == 200
-    except:
-        return False
+try:
+    if demandes:
+        df_suivi = pd.DataFrame(demandes)
+        df_suivi = df_suivi[df_suivi['statut'].str.contains('En attente|En cours', na=False, regex=True)]
+        
+        if not df_suivi.empty:
+            cols = ['reference', 'quantite', 'urgence', 'statut', 'operateur_id']
+            cols_dispo = [c for c in cols if c in df_suivi.columns]
+            st.dataframe(df_suivi[cols_dispo], use_container_width=True, hide_index=True)
+        else:
+            st.success(" Aucune production en attente.")
+    else:
+        st.success(" Aucune production en attente.")
+except Exception as e:
+    st.error(f"Erreur de lecture du suivi: {e}")
 
 # ═══════════════════════════════════════════════════════════════════
 # PRÉPARATION DE COMMANDE (PANIER)
