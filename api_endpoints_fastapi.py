@@ -164,20 +164,39 @@ def get_demandes():
     return [dict(row) for row in rows]
 
 @app.post("/api/create_demande")
-async def create_demande(data: dict):
-    try:
+async def create_demande(data: DemandeCreate):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO Demandes (reference, quantite, date_besoin, shift, statut, urgence, heure_demande)
             VALUES (?, ?, ?, ?, '🟠En attente', ?, datetime('now'))
-        """, (data['reference'], data['quantite'], data['date_besoin'], data['shift'], data['urgence']))
+        """, (
+            data.reference,
+            data.quantite,
+            data.date_besoin,
+            data.shift,
+            data.urgence
+        )) 
         conn.commit()
         conn.close()
-        await send_status_to_card(data['shift'])
+        await send_status_to_card(data.shift)
         return {"success": True}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    
+@app.get("/api/operateur_tasks")
+def operateur_tasks(shift: str = "B"):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # Yjib el khedma ili mahich terminée wala archivée
+    cursor.execute("""
+        SELECT id, reference, quantite, statut, shift
+        FROM Demandes
+        WHERE shift = ?
+        AND statut NOT IN ('✅ Terminé','Archive')
+        ORDER BY id ASC
+    """, (shift,))
+    rows = cursor.fetchall()
+    conn.close()
+    return {"tasks": [{"id": r[0], "reference": r[1], "quantite": r[2], "statut": r[3], "shift": r[4]} for r in rows]}
 
 @app.get("/api/get_pannes")
 def get_pannes():
@@ -198,14 +217,14 @@ def resoudre():
     conn.close()
     return {"success": True}
 
-@app.post("/api/archiver_demandes")
-def archiver():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE Demandes SET statut = 'Archivé' WHERE statut LIKE '%Terminé%'")
-    conn.commit()
-    conn.close()
-    return {"success": True}
+#@app.post("/api/archiver_demandes")
+#def archiver():
+ #   conn = sqlite3.connect(DB_PATH)
+  #  cursor = conn.cursor()
+   # cursor.execute("UPDATE Demandes SET statut = 'Archivé' WHERE statut LIKE '%Terminé%'")
+   # conn.commit()
+    #conn.close()
+    #return {"success": True}
 
 # --- ROUTES CARTES / BOUTONS ---
 
