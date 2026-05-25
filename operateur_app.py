@@ -120,7 +120,7 @@ if tasks:
                 <div style='border-left: 4px solid {border_color}; padding-left: 10px;'>
                     <b>Référence:</b> {module}<br>
                     <b>Quantité:</b> {qte}<br>
-                    <b>Urgence:</b> {urgence}<br>
+                    <tr><td><b>Urgence:</b></td><td><span style='color: {border_color};'>● {urgence}</span></td></tr>
                     <b>Statut:</b> {statut}
                 </div>
             """, unsafe_allow_html=True)

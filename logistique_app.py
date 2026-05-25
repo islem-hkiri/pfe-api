@@ -83,8 +83,6 @@ if demandes:
 
     st.sidebar.metric("Total demandes",  total)
     st.sidebar.metric("✅ Terminées",    termine)
-    st.sidebar.metric("🟢 En cours",     en_cours)
-    st.sidebar.metric("🟠 En attente",   en_attente)
 
     # ── Temps moyen ──────────────────────────────
     df_term = df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)].copy()
@@ -267,7 +265,7 @@ try:
                                 border-radius: 5px;
                                 margin: 5px 0;
                             '>
-                                <h4 style='color: {border_color}; margin-top: 0;'>📦 {module}</h4>
+                                <h4 style='color: {border_color}; margin-top: 0;'>{module}</h4>
                                 <table style='width: 100%; color: white;'>
                                     <tr><td><b>ID:</b></td><td>#{id_d}</td></tr>
                                     <tr><td><b>Quantité:</b></td><td>{qte} unités</td></tr>
