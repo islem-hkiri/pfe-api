@@ -61,23 +61,19 @@ def signal_panne_api(operateur_id, cause):
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur")
-    # IBDEL HAKA:
-shift = st.radio("Shift", ["A", "B"], horizontal=True)
+    shift = st.radio("Shift", ["A", "B"], horizontal=True)
 
-# BIH HAKA:
-shift = st.radio("Shift", ["A", "B"], horizontal=True)
-
-# Ki tbaddel shift → eb3at lil API
-if "last_shift" not in st.session_state:
-    st.session_state.last_shift = shift
-
-if shift != st.session_state.last_shift:
-    try:
-        requests.post(f"{API_URL}/api/set_shift", json={"shift": shift}, timeout=5)
+    # Ki tbaddel shift → eb3at lil API
+    if "last_shift" not in st.session_state:
         st.session_state.last_shift = shift
-        st.success(f"✅ Shift changé vers {shift}")
-    except:
-        st.warning("⚠️ Impossible de notifier l'ESP32")
+
+    if shift != st.session_state.last_shift:
+        try:
+            requests.post(f"{API_URL}/api/set_shift", json={"shift": shift}, timeout=5)
+            st.session_state.last_shift = shift
+            st.success(f"✅ Shift changé vers {shift}")
+        except:
+            st.warning("⚠️ Impossible de notifier l'ESP32")
 
     st.subheader("Signalement Panne")
     cause = st.text_input("Cause de la panne")
