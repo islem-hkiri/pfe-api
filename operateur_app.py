@@ -150,10 +150,10 @@ if tasks:
                     else:
                         st.error("Erreur lors de la terminaison")
 
-            if "En attente" in statut:
-                st.warning("🟠 EN ATTENTE")
-            elif "En cours" in statut:
-                st.info("🟢 EN COURS")
+           # if "En attente" in statut:
+            #    st.warning("🟠EN ATTENTE")
+            #elif "En cours" in statut:
+             #   st.info("🟢 EN COURS")
 
 elif tasks == []:
     st.success("Aucune tâche active")
