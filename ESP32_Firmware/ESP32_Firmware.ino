@@ -1,30 +1,71 @@
 #include <WiFi.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 
 const char* ssid = "BEE HUAWEI-1CB0";
 const char* password = "485754439C621CB0";
-
-// 🔥 MAINANT C'EST L'IP DE RENDER (serveur remote)
-const char* serverIP = "pfe-api-uju4.onrender.com";  // ← Serveur remote
-const int serverPort = 443;  // HTTP port, pas 8000
+const char* serverIP = "pfe-api-uju4.onrender.com";
 
 #define LED_GREEN 26
 #define LED_ORANGE 27
 #define LED_RED 14
 #define LIMIT_SWITCH 25
-#define BTN_CANCEL   33
+#define BTN_CANCEL 33
 
 String shift = "B";
 bool lastSwitchState = HIGH;
 bool lastCancelState = HIGH;
 bool webSocketConnected = false;
-
-WebSocketsClient webSocket;
 unsigned long lastHeartbeat = 0;
 unsigned long lastStatusRequest = 0;
+unsigned long lastShiftCheck = 0;
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+WebSocketsClient webSocket;
+
+// ═══════════════════════════════
+// LEDS
+// ═══════════════════════════════
+void setLED(String etat) {
+  if (etat == "Libre") {
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_ORANGE, LOW);
+    digitalWrite(LED_RED, LOW);
+    Serial.println("🟢 LED: VERTE (Libre)");
+  }
+  else if (etat.indexOf("attente") != -1 || etat.indexOf("En attente") != -1) {
+    digitalWrite(LED_GREEN, LOW);
+    digitalWrite(LED_ORANGE, HIGH);
+    digitalWrite(LED_RED, LOW);
+    Serial.println("🟠 LED: ORANGE (En attente)");
+  }
+  else if (etat.indexOf("cours") != -1 || etat.indexOf("En cours") != -1) {
+    digitalWrite(LED_GREEN, LOW);
+    digitalWrite(LED_ORANGE, LOW);
+    digitalWrite(LED_RED, HIGH);
+    Serial.println("🔴 LED: ROUGE (En cours)");
+  }
+  else {
+    Serial.print("⚠️ État inconnu: ");
+    Serial.println(etat);
+  }
+}
+
+void flashAllLEDs() {
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_ORANGE, HIGH);
+  digitalWrite(LED_RED, HIGH);
+  delay(300);
+  digitalWrite(LED_GREEN, LOW);
+  digitalWrite(LED_ORANGE, LOW);
+  digitalWrite(LED_RED, LOW);
+  delay(200);
+}
+
+// ═══════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════
+void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
   switch (type) {
     case WStype_DISCONNECTED:
       Serial.println("❌ WebSocket déconnecté!");
@@ -32,37 +73,21 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       break;
 
     case WStype_CONNECTED:
-      Serial.println("✅ WebSocket connecté à Render!");
+      Serial.println("✅ WebSocket connecté!");
       webSocketConnected = true;
+      delay(200);
       webSocket.sendTXT("get_status");
       break;
 
-    case WStype_TEXT:
-      {
-        String message = String((char*)payload);
-        Serial.print("📨 Message reçu du serveur: ");
-        Serial.println(message);
-
-        if (message == "Libre") {
-          Serial.println("🟢 État: LIBRE - LED VERTE");
-          digitalWrite(LED_GREEN, HIGH);
-          digitalWrite(LED_ORANGE, LOW);
-          digitalWrite(LED_RED, LOW);
-        }
-        else if (message == "🟠En attente") {
-          Serial.println("🟠 État: EN ATTENTE - LED ORANGE");
-          digitalWrite(LED_GREEN, LOW);
-          digitalWrite(LED_ORANGE, HIGH);
-          digitalWrite(LED_RED, LOW);
-        }
-        else if (message == "🟢En cours") {
-          Serial.println("🔴 État: EN COURS - LED ROUGE");
-          digitalWrite(LED_GREEN, LOW);
-          digitalWrite(LED_ORANGE, LOW);
-          digitalWrite(LED_RED, HIGH);
-        }
+    case WStype_TEXT: {
+      String message = String((char*)payload);
+      Serial.print("📨 Reçu: ");
+      Serial.println(message);
+      if (message != "pong") {
+        setLED(message);
       }
       break;
+    }
 
     case WStype_ERROR:
       Serial.println("❌ Erreur WebSocket!");
@@ -71,9 +96,43 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
+// ═══════════════════════════════
+// GET ACTIVE SHIFT (HTTP)
+// ═══════════════════════════════
+String getActiveShift() {
+  HTTPClient http;
+  http.begin("https://pfe-api-uju4.onrender.com/api/get_active_shift");
+  http.setTimeout(5000);
+  int code = http.GET();
+  if (code == 200) {
+    String payload = http.getString();
+    int idx = payload.indexOf("\"shift\":\"");
+    if (idx != -1) {
+      String s = payload.substring(idx + 9, idx + 10);
+      http.end();
+      return s;
+    }
+  }
+  http.end();
+  return shift;
+}
+
+// ═══════════════════════════════
+// RECONNECT SHIFT
+// ═══════════════════════════════
+void connectToShift(String s) {
+  Serial.print("🔗 Connexion WebSocket shift: ");
+  Serial.println(s);
+  webSocket.disconnect();
+  delay(500);
+  webSocket.beginSSL(serverIP, 443, ("/ws/" + s).c_str());
+}
+
+// ═══════════════════════════════
+// SETUP
+// ═══════════════════════════════
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n⚠️ Démarrage ESP32...");
 
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_ORANGE, OUTPUT);
@@ -85,59 +144,69 @@ void setup() {
   digitalWrite(LED_ORANGE, LOW);
   digitalWrite(LED_RED, LOW);
 
-  Serial.print("🔒 Connexion au WiFi...");
+  Serial.print("🔒 Connexion WiFi...");
   WiFi.begin(ssid, password);
-
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
+  Serial.println("\n✅ WiFi connecté!");
 
-  Serial.println("\n💻 WiFi connecté !");
-  Serial.print("📋 IP address: ");
-  Serial.println(WiFi.localIP());
-
-  Serial.print("🔗 Connexion WebSocket à ");
-  Serial.print(serverIP);
-  Serial.print(":");
-  Serial.println(serverPort);
-
-  // Connexion au serveur Render (websocket)
-  webSocket.beginSSL(serverIP, 443, ("/ws/" + shift).c_str());
+  connectToShift(shift);
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
 }
 
+// ═══════════════════════════════
+// LOOP
+// ═══════════════════════════════
 void loop() {
   webSocket.loop();
 
-  if (webSocketConnected && (millis() - lastHeartbeat > 20000)) {
+  // Heartbeat kol 20s
+  if (webSocketConnected && millis() - lastHeartbeat > 20000) {
     webSocket.sendTXT("ping");
     lastHeartbeat = millis();
-    Serial.println("💬 Heartbeat envoyé");
   }
 
-  if (webSocketConnected && (millis() - lastStatusRequest > 3000)) {
+  // Get status kol 3s
+  if (webSocketConnected && millis() - lastStatusRequest > 3000) {
     webSocket.sendTXT("get_status");
     lastStatusRequest = millis();
-    Serial.println("🔄 Demande de statut envoyée");
   }
 
+  // Pédale — increment
   bool switchState = digitalRead(LIMIT_SWITCH);
   if (lastSwitchState == HIGH && switchState == LOW && webSocketConnected) {
-    Serial.println("☑️ Pédale pressée - Incrémentation");
+    Serial.println("☑️ Pédale — increment");
     webSocket.sendTXT("increment");
     delay(300);
   }
   lastSwitchState = switchState;
 
+  // Bouton annuler — decrement
   bool cancelState = digitalRead(BTN_CANCEL);
   if (lastCancelState == HIGH && cancelState == LOW && webSocketConnected) {
-    Serial.println("🔘 Annulation pressée - Décrémentation");
+    Serial.println("🔘 Annuler — decrement");
     webSocket.sendTXT("decrement");
     delay(300);
   }
   lastCancelState = cancelState;
+
+  // Vérifier shift kol 5s
+  if (millis() - lastShiftCheck > 5000) {
+    lastShiftCheck = millis();
+    String newShift = getActiveShift();
+    if (newShift != shift) {
+      Serial.print("🔄 Shift changé: ");
+      Serial.print(shift);
+      Serial.print(" → ");
+      Serial.println(newShift);
+      shift = newShift;
+      flashAllLEDs();
+      connectToShift(shift);
+    }
+  }
 
   delay(50);
 }
