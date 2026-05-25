@@ -365,7 +365,45 @@ async def signal_panne(data: PanneCreate):
     conn.commit()
     conn.close()
     return {"success": True, "message": "Panne signalée"}
-# ZIDHA BA3D /api/signal_panne
+@app.post("/api/set_shift")
+def set_shift(data: ShiftRequest):
+    """Logistique/Opérateur ybaddel shift — ESP32 yaqra"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update) 
+        VALUES ('ACTIVE', 0, NULL, ?)
+        ON CONFLICT(shift) DO UPDATE SET last_update = ?
+    """, (data.shift, data.shift))
+    # Sto3 el shift el actif fil DB
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ActiveShift (
+            id INTEGER PRIMARY KEY,
+            shift TEXT,
+            last_update TEXT
+        )
+    """)
+    cursor.execute("""
+        INSERT INTO ActiveShift (id, shift, last_update) VALUES (1, ?, datetime('now'))
+        ON CONFLICT(id) DO UPDATE SET shift = ?, last_update = datetime('now')
+    """, (data.shift, data.shift))
+    conn.commit()
+    conn.close()
+    return {"success": True, "shift": data.shift}
+
+@app.get("/api/get_active_shift")
+def get_active_shift():
+    """ESP32 yaqra el shift el actif"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT shift FROM ActiveShift WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        return {"shift": row[0] if row else "B"}
+    except:
+        conn.close()
+        return {"shift": "B"}
 
 @app.get("/api/get_stock")
 def get_stock():
