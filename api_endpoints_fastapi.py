@@ -233,6 +233,30 @@ def get_demandes():
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+# Zidha ba3d @app.get("/api/get_demandes")
+
+@app.get("/api/get_stock")
+def get_stock():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT reference, famille, quantite FROM Stock ORDER BY reference ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+@app.post("/api/update_stock")
+def update_stock(data: dict):
+    """Mettre à jour manuellement le stock"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO Stock (reference, famille, quantite) VALUES (?, ?, ?) ON CONFLICT(reference) DO UPDATE SET quantite = ?",
+        (data["reference"], data.get("famille", ""), data["quantite"], data["quantite"])
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
 @app.post("/api/create_demande")
 async def create_demande(data: DemandeCreate):

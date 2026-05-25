@@ -325,10 +325,17 @@ if "panier" not in st.session_state:
 st.markdown("---")
 st.subheader(" Nouvelle Demande de Production")
 
-# Récupérer stock localement
-conn_local = sqlite3.connect(DB_PATH)
-df_stock_info = pd.read_sql_query("SELECT reference, quantite FROM Stock", conn_local)
-conn_local.close()
+# APRÈS (API enligne ✅)
+def get_stock_api():
+    try:
+        response = requests.get(f"{API_URL}/api/get_stock", timeout=10)
+        if response.status_code == 200:
+            return pd.DataFrame(response.json())
+    except Exception as e:
+        st.warning(f"Stock API error: {e}")
+    return pd.DataFrame(columns=["reference", "famille", "quantite"])
+
+df_stock_info = get_stock_api()
 
 with st.container():
     c1, c2 = st.columns(2)
@@ -360,30 +367,74 @@ if st.session_state.panier:
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        if st.button(" Annuler tout", use_container_width=True):
+        if st.button("Annuler tout", use_container_width=True):
             st.session_state.panier = []
             st.rerun()
     with col_b2:
-        if st.button(" Envoyer au montage", type="primary", use_container_width=True):
-            success_count = 0
-            for item in st.session_state.panier:
-                for s in ['A', 'B']:
-                    data = {
-                        "reference": item["reference"],
-                        "quantite": item["quantite"],
-                        "date_besoin": item["date_besoin"],
-                        "shift": s,
-                        "urgence": item["urgence"]
-                    }
-                    if create_demande_api(data):
-                        success_count += 1
+        if st.button("Envoyer au montage", type="primary", use_container_width=True):
             
-            st.session_state.panier = []
-            if success_count > 0:
-                st.success(f"Demandes envoyées avec succès ! ({success_count} créées)")
+            # ══════════════════════════════════════════
+            # VERIFICATION STOCK (mil API enligne)
+            # ══════════════════════════════════════════
+            try:
+                stock_response = requests.get(f"{API_URL}/api/get_stock", timeout=10)
+                if stock_response.status_code == 200:
+                    stock_list = stock_response.json()
+                    stock_dict = {item["reference"]: item["quantite"] for item in stock_list}
+                else:
+                    st.error("❌ Impossible de vérifier le stock (erreur API)")
+                    st.stop()
+            except Exception as e:
+                st.error(f"❌ Erreur connexion stock: {e}")
+                st.stop()
+
+            # Vérifier chaque référence dans le panier
+            insuffisant = []
+            for item in st.session_state.panier:
+                ref = item["reference"]
+                qte_demandee = item["quantite"]
+                stock_dispo = stock_dict.get(ref, 0)
+                if stock_dispo < qte_demandee:
+                    insuffisant.append({
+                        "ref": ref,
+                        "dispo": stock_dispo,
+                        "demande": qte_demandee,
+                        "manque": qte_demandee - stock_dispo
+                    })
+
+            # Si stock insuffisant → bloquer + afficher détails
+            if insuffisant:
+                st.error("🚫 Stock insuffisant — Envoi bloqué !")
+                for prob in insuffisant:
+                    st.warning(
+                        f"📦 **{prob['ref']}** | "
+                        f"Disponible: {prob['dispo']} | "
+                        f"Demandé: {prob['demande']} | "
+                        f"Manque: {prob['manque']}"
+                    )
             else:
-                st.error("Erreur lors de l'envoi des demandes")
-            st.rerun()
+                # ══════════════════════════════════════════
+                # STOCK OK → ENVOYER LES DEMANDES
+                # ══════════════════════════════════════════
+                success_count = 0
+                for item in st.session_state.panier:
+                    for s in ['A', 'B']:
+                        data = {
+                            "reference": item["reference"],
+                            "quantite": item["quantite"],
+                            "date_besoin": item["date_besoin"],
+                            "shift": s,
+                            "urgence": item["urgence"]
+                        }
+                        if create_demande_api(data):
+                            success_count += 1
+
+                st.session_state.panier = []
+                if success_count > 0:
+                    st.success(f"✅ Demandes envoyées avec succès ! ({success_count} créées)")
+                else:
+                    st.error("❌ Erreur lors de l'envoi des demandes")
+                st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════
 # SUPERVISION GRAPHIQUE (mil API)
