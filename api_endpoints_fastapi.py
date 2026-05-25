@@ -181,7 +181,9 @@ def increment_sync(shift: str):
         print(f"✅ Production TERMINÉE! {qte_totale} unités de {ref}")
 
         # 🔄 AUTO-DÉMARRAGE prochaine demande
-        cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente') ORDER BY id ASC LIMIT 1", (shift,))
+        cursor.execute("""SELECT id, quantite, reference FROM Demandes 
+    WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
+    ORDER BY CASE urgence WHEN 'Critique' THEN 1 WHEN 'Urgent' THEN 2 WHEN 'Normal' THEN 3 ELSE 4 END ASC, id ASC LIMIT 1""", (shift,))        
         next_demande = cursor.fetchone()
 
         if next_demande:
