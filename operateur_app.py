@@ -63,18 +63,6 @@ with st.sidebar:
     id_op_saisie = st.text_input("ID Operateur")
     shift = st.radio("Shift", ["A", "B"], horizontal=True)
 
-    # Ki tbaddel shift → eb3at lil API
-    if "last_shift" not in st.session_state:
-        st.session_state.last_shift = shift
-
-    if shift != st.session_state.last_shift:
-        try:
-            requests.post(f"{API_URL}/api/set_shift", json={"shift": shift}, timeout=5)
-            st.session_state.last_shift = shift
-            st.success(f"✅ Shift changé vers {shift}")
-        except:
-            st.warning("⚠️ Impossible de notifier l'ESP32")
-
     st.subheader("Signalement Panne")
     cause = st.text_input("Cause de la panne")
 
@@ -116,23 +104,12 @@ if tasks:
             border_color = "#262730"
 
         with st.expander(f"{module} | Qte {qte} | ID {id_d} | {urgence}"):
-            
-            if "En cours" in statut:
-                statut_color = "#00cc44"
-                statut_icon = "🟢"
-            elif "En attente" in statut:
-                statut_color = "#ffa421"
-                statut_icon = "🟠"
-            else:
-                statut_color = "#888888"
-                statut_icon = "⚪"
-
             st.markdown(f"""
                 <div style='border-left: 4px solid {border_color}; padding-left: 10px;'>
                     <b>Référence:</b> {module}<br>
                     <b>Quantité:</b> {qte}<br>
-                    <b>Statut:</b> <span style='color:{statut_color}; font-weight:bold;'>{statut_icon} {statut}</span><br>
-                    <b>Urgence:</b> <span style='color:{border_color}; font-weight:bold;'>● {urgence}</span>
+                    <b>Urgence:</b> {urgence}<br>
+                    <b>Statut:</b> {statut}
                 </div>
             """, unsafe_allow_html=True)
 
@@ -159,6 +136,11 @@ if tasks:
                         st.rerun()
                     else:
                         st.error("Erreur lors de la terminaison")
+
+            if "En attente" in statut:
+                st.warning("🟠 EN ATTENTE")
+            elif "En cours" in statut:
+                st.info("🟢 EN COURS")
 
 elif tasks == []:
     st.success("Aucune tâche active")
