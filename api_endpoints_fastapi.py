@@ -144,19 +144,7 @@ def increment_sync(shift: str):
 
     if not demande:
         # 2. Sinon, prendre la prochaine en attente
-        cursor.execute("""
-    SELECT id FROM Demandes 
-    WHERE shift=? AND statut='🟠 En attente'
-    ORDER BY 
-        CASE urgence 
-            WHEN 'Critique' THEN 1 
-            WHEN 'Urgent'   THEN 2 
-            WHEN 'Normal'   THEN 3 
-            ELSE 4 
-        END ASC,
-        id ASC
-    LIMIT 1
-""", (shift,))
+        cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente') ORDER BY id ASC LIMIT 1", (shift,))
         demande = cursor.fetchone()
         if not demande:
             conn.close()
@@ -193,9 +181,7 @@ def increment_sync(shift: str):
         print(f"✅ Production TERMINÉE! {qte_totale} unités de {ref}")
 
         # 🔄 AUTO-DÉMARRAGE prochaine demande
-        cursor.execute("""SELECT id, quantite, reference FROM Demandes 
-    WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente')
-    ORDER BY CASE urgence WHEN 'Critique' THEN 1 WHEN 'Urgent' THEN 2 WHEN 'Normal' THEN 3 ELSE 4 END ASC, id ASC LIMIT 1""", (shift,))
+        cursor.execute("SELECT id, quantite, reference FROM Demandes WHERE shift = ? AND (statut = '🟠En attente' OR statut = 'En attente') ORDER BY id ASC LIMIT 1", (shift,))
         next_demande = cursor.fetchone()
 
         if next_demande:
@@ -298,17 +284,19 @@ def operateur_tasks(shift: str = "B"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
-    SELECT * FROM Demandes 
-    WHERE shift=? AND statut NOT IN ('✅ Terminé', 'Archivé')
-    ORDER BY 
-        CASE urgence 
-            WHEN 'Critique' THEN 1 
-            WHEN 'Urgent'   THEN 2 
-            WHEN 'Normal'   THEN 3 
-            ELSE 4 
-        END ASC,
-        id ASC
-""", (shift,))
+        SELECT id, reference, quantite, statut, shift, urgence
+        FROM Demandes
+        WHERE shift = ?
+        AND statut NOT IN ('✅ Terminé','Archive','Archivé')
+        ORDER BY 
+            CASE urgence
+                WHEN 'Critique' THEN 1
+                WHEN 'Urgent' THEN 2
+                WHEN 'Normal' THEN 3
+                ELSE 4
+            END,
+            id ASC
+    """, (shift,))
     rows = cursor.fetchall()
     conn.close()
     return {"tasks": [{"id": r[0], "reference": r[1], "quantite": r[2], "statut": r[3], "shift": r[4], "urgence": r[5]} for r in rows]}
@@ -379,46 +367,6 @@ async def signal_panne(data: PanneCreate):
     return {"success": True, "message": "Panne signalée"}
 # ZIDHA BA3D /api/signal_panne
 
-@app.post("/api/set_shift")
-def set_shift(data: ShiftRequest):
-    """Logistique/Opérateur ybaddel shift — ESP32 yaqra"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO EtatMachine (shift, compteur_actuel, demande_id, last_update) 
-        VALUES ('ACTIVE', 0, NULL, ?)
-        ON CONFLICT(shift) DO UPDATE SET last_update = ?
-    """, (data.shift, data.shift))
-    # Sto3 el shift el actif fil DB
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ActiveShift (
-            id INTEGER PRIMARY KEY,
-            shift TEXT,
-            last_update TEXT
-        )
-    """)
-    cursor.execute("""
-        INSERT INTO ActiveShift (id, shift, last_update) VALUES (1, ?, datetime('now'))
-        ON CONFLICT(id) DO UPDATE SET shift = ?, last_update = datetime('now')
-    """, (data.shift, data.shift))
-    conn.commit()
-    conn.close()
-    return {"success": True, "shift": data.shift}
-
-@app.get("/api/get_active_shift")
-def get_active_shift():
-    """ESP32 yaqra el shift el actif"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT shift FROM ActiveShift WHERE id = 1")
-        row = cursor.fetchone()
-        conn.close()
-        return {"shift": row[0] if row else "B"}
-    except:
-        conn.close()
-        return {"shift": "B"}
-
 @app.get("/api/get_stock")
 def get_stock():
     conn = sqlite3.connect(DB_PATH)
@@ -436,8 +384,8 @@ def sync_stock(data: StockSync):
     for item in data.items:
         cursor.execute("""
             INSERT INTO Stock (reference, quantite) VALUES (?, ?)
-            ON CONFLICT(reference) DO NOTHING
-        """, (item.reference, item.quantite))
+            ON CONFLICT(reference) DO UPDATE SET quantite = ?
+        """, (item.reference, item.quantite, item.quantite))
     conn.commit()
     conn.close()
     return {"success": True, "synced": len(data.items)}

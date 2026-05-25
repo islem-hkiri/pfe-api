@@ -58,13 +58,10 @@ def signal_panne_api(operateur_id, cause):
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
 
-if "shift" not in st.session_state:
-    st.session_state["shift"] = "A"
-
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur")
-    shift = st.radio("Shift", ["A", "B"], horizontal=True, key="shift")
+    shift = st.radio("Shift", ["A", "B"], horizontal=True)
 
     st.subheader("Signalement Panne")
     cause = st.text_input("Cause de la panne")
@@ -82,29 +79,13 @@ with st.sidebar:
 # TITRE
 # ═══════════════════════════════════════════════════════════════════
 
-shift = st.session_state["shift"]
 st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 
 # ═══════════════════════════════════════════════════════════════════
 # RECUPERATION TACHES (mil API)
 # ═══════════════════════════════════════════════════════════════════
 
-URGENCE_PRIORITY = {"Critique": 3, "Urgent": 2, "Normal": 1}
-
-def get_priority_task(tasks):
-    """Retourne la tâche avec la plus haute urgence qui n'est pas encore en cours."""
-    pending = [t for t in tasks if "En cours" not in t.get("statut", "")]
-    if not pending:
-        return None
-    return max(pending, key=lambda t: URGENCE_PRIORITY.get(t.get("urgence", "Normal"), 1))
-
 tasks = get_tasks_api(shift)
-
-# Trier les tâches par urgence (Critique > Urgent > Normal)
-if tasks:
-    tasks = sorted(tasks, key=lambda t: URGENCE_PRIORITY.get(t.get("urgence", "Normal"), 1), reverse=True)
-    priority_task = get_priority_task(tasks)
-    priority_id = priority_task["id"] if priority_task else None
 
 if tasks:
     for task in tasks:
@@ -115,18 +96,14 @@ if tasks:
         urgence = task.get("urgence", "Normal")
 
         # Couleur selon urgence
-        if urgence == "🔴Critique":
+        if urgence == "Critique":
             border_color = "#ff4b4b"
-        elif urgence == "🔵Urgent":
+        elif urgence == "Urgent":
             border_color = "#ffa421"
         else:
             border_color = "#262730"
 
-        is_priority = (id_d == priority_id)
-        priority_badge = " 🎯 PRIORITÉ" if is_priority else ""
-        expander_label = f"{module} | Qte {qte} | ID {id_d} | {urgence}{priority_badge}"
-
-        with st.expander(expander_label, expanded=is_priority):
+        with st.expander(f"{module} | Qte {qte} | ID {id_d} | {urgence}"):
             st.markdown(f"""
                 <div style='border-left: 4px solid {border_color}; padding-left: 10px;'>
                     <b>Référence:</b> {module}<br>
@@ -136,25 +113,16 @@ if tasks:
                 </div>
             """, unsafe_allow_html=True)
 
-            if is_priority and "En cours" not in statut:
-                st.info("C'est la tâche prioritaire — lancez celle-ci en premier !")
-
             col1, col2 = st.columns(2)
 
             with col1:
                 if "En cours" in statut:
                     st.button("Production en cours", disabled=True, key=f"disabled_{id_d}")
                 else:
-                    btn_label = "Lancer (PRIORITÉ)" if is_priority else "Lancer production"
-                    if st.button(btn_label, key=f"start_{id_d}", type="primary" if is_priority else "secondary"):
+                    if st.button("Lancer production", key=f"start_{id_d}"):
                         if id_op_saisie:
-                            # Lancer toujours la tâche prioritaire en premier
-                            target_id = priority_id if priority_id else id_d
-                            if start_production_api(target_id, id_op_saisie):
-                                if target_id != id_d:
-                                    st.warning(f"⚡ Tâche prioritaire (ID {target_id}) lancée automatiquement !")
-                                else:
-                                    st.success("Production démarrée !")
+                            if start_production_api(id_d, id_op_saisie):
+                                st.success("Production démarrée !")
                                 st.rerun()
                             else:
                                 st.error("Erreur lors du démarrage")
@@ -170,9 +138,9 @@ if tasks:
                         st.error("Erreur lors de la terminaison")
 
             if "En attente" in statut:
-                st.warning("🟠EN ATTENTE")
+                st.warning("🟠 EN ATTENTE")
             elif "En cours" in statut:
-                st.info("🟢EN COURS")
+                st.info("🟢 EN COURS")
 
 elif tasks == []:
     st.success("Aucune tâche active")
