@@ -328,12 +328,15 @@ st.subheader(" Nouvelle Demande de Production")
 # APRÈS (API enligne ✅)
 def get_stock_api():
     try:
-        response = requests.get(f"{API_URL}/api/get_stock", timeout=10)
-        if response.status_code == 200:
-            return pd.DataFrame(response.json())
-    except Exception as e:
-        st.warning(f"Stock API error: {e}")
-    return pd.DataFrame(columns=["reference", "famille", "quantite"])
+        stock_resp = requests.get(f"{API_URL}/api/get_stock", timeout=10)
+        if stock_resp.status_code == 200:
+            df_stock_info = pd.DataFrame(stock_resp.json())
+        else:
+            df_stock_info = pd.DataFrame(columns=["reference", "quantite"])
+    except Exception:
+        df_stock_info = pd.DataFrame(columns=["reference", "quantite"])
+    return df_stock_info
+    df_stock_info = pd.DataFrame(columns=["reference", "quantite"])
 
 df_stock_info = get_stock_api()
 
@@ -372,15 +375,12 @@ if st.session_state.panier:
             st.rerun()
     with col_b2:
         if st.button("Envoyer au montage", type="primary", use_container_width=True):
-            
-            # ══════════════════════════════════════════
-            # VERIFICATION STOCK (mil API enligne)
-            # ══════════════════════════════════════════
+
+            # VERIFICATION STOCK ENLIGNE
             try:
                 stock_response = requests.get(f"{API_URL}/api/get_stock", timeout=10)
                 if stock_response.status_code == 200:
-                    stock_list = stock_response.json()
-                    stock_dict = {item["reference"]: item["quantite"] for item in stock_list}
+                    stock_dict = {item["reference"]: item["quantite"] for item in stock_response.json()}
                 else:
                     st.error("❌ Impossible de vérifier le stock (erreur API)")
                     st.stop()
@@ -388,21 +388,17 @@ if st.session_state.panier:
                 st.error(f"❌ Erreur connexion stock: {e}")
                 st.stop()
 
-            # Vérifier chaque référence dans le panier
             insuffisant = []
             for item in st.session_state.panier:
-                ref = item["reference"]
-                qte_demandee = item["quantite"]
-                stock_dispo = stock_dict.get(ref, 0)
-                if stock_dispo < qte_demandee:
+                stock_dispo = stock_dict.get(item["reference"], 0)
+                if stock_dispo < item["quantite"]:
                     insuffisant.append({
-                        "ref": ref,
+                        "ref": item["reference"],
                         "dispo": stock_dispo,
-                        "demande": qte_demandee,
-                        "manque": qte_demandee - stock_dispo
+                        "demande": item["quantite"],
+                        "manque": item["quantite"] - stock_dispo
                     })
 
-            # Si stock insuffisant → bloquer + afficher détails
             if insuffisant:
                 st.error("🚫 Stock insuffisant — Envoi bloqué !")
                 for prob in insuffisant:
@@ -413,9 +409,6 @@ if st.session_state.panier:
                         f"Manque: {prob['manque']}"
                     )
             else:
-                # ══════════════════════════════════════════
-                # STOCK OK → ENVOYER LES DEMANDES
-                # ══════════════════════════════════════════
                 success_count = 0
                 for item in st.session_state.panier:
                     for s in ['A', 'B']:

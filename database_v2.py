@@ -2,6 +2,9 @@ import sqlite3
 import pandas as pd
 import openpyxl
 import os
+# ZIDHA BA3D imports
+import requests
+API_URL = "https://pfe-api-uju4.onrender.com"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gestion_production.db")
@@ -140,6 +143,7 @@ def init_db():
     conn.commit()
     conn.close()
     print("✅ Base de données initialisée avec succès!")
+    sync_stock_to_api(conn_path=DB_PATH)  # ← lazem 4 espaces indent (nfs mstawa mte3 conn.commit)
 
 def manual_sync():
     """Fonction pour synchroniser manuellement les données"""
@@ -148,6 +152,34 @@ def manual_sync():
         return "✅ Synchronisation terminée avec succès!"
     except Exception as e:
         return f"❌ Erreur lors de la synchronisation: {e}"
+# ZIDHA BA3D manual_sync()
+def sync_stock_to_api(conn_path=None):
+    """Sync stock local → base enligne"""
+    try:
+        path = conn_path or DB_PATH
+        conn = sqlite3.connect(path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT reference, famille, quantite FROM Stock")
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            print("⚠️ Stock vide, rien à sync")
+            return
+
+        items = [{"reference": r[0], "famille": r[1] or "", "quantite": r[2]} for r in rows]
+
+        response = requests.post(
+            f"{API_URL}/api/sync_stock",
+            json={"items": items},
+            timeout=30
+        )
+        if response.status_code == 200:
+            print(f"✅ Stock synchronisé enligne: {len(items)} références")
+        else:
+            print(f"❌ Erreur sync: {response.status_code}")
+    except Exception as e:
+        print(f"❌ Erreur sync stock: {e}")
 
 if __name__ == "__main__":
     init_db()
