@@ -58,10 +58,13 @@ def signal_panne_api(operateur_id, cause):
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
 
+if "shift" not in st.session_state:
+    st.session_state["shift"] = "A"
+
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur")
-    shift = st.radio("Shift", ["A", "B"], horizontal=True)
+    shift = st.radio("Shift", ["A", "B"], horizontal=True, key="shift")
 
     st.subheader("Signalement Panne")
     cause = st.text_input("Cause de la panne")
@@ -79,6 +82,7 @@ with st.sidebar:
 # TITRE
 # ═══════════════════════════════════════════════════════════════════
 
+shift = st.session_state["shift"]
 st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 
 # ═══════════════════════════════════════════════════════════════════
@@ -111,9 +115,9 @@ if tasks:
         urgence = task.get("urgence", "Normal")
 
         # Couleur selon urgence
-        if urgence == "Critique":
+        if urgence == "🔴Critique":
             border_color = "#ff4b4b"
-        elif urgence == "Urgent":
+        elif urgence == "🔵Urgent":
             border_color = "#ffa421"
         else:
             border_color = "#262730"
@@ -133,7 +137,7 @@ if tasks:
             """, unsafe_allow_html=True)
 
             if is_priority and "En cours" not in statut:
-                st.info("⚡ C'est la tâche prioritaire — lancez celle-ci en premier !")
+                st.info("C'est la tâche prioritaire — lancez celle-ci en premier !")
 
             col1, col2 = st.columns(2)
 
@@ -141,7 +145,7 @@ if tasks:
                 if "En cours" in statut:
                     st.button("Production en cours", disabled=True, key=f"disabled_{id_d}")
                 else:
-                    btn_label = "🚀 Lancer (PRIORITÉ)" if is_priority else "Lancer production"
+                    btn_label = "Lancer (PRIORITÉ)" if is_priority else "Lancer production"
                     if st.button(btn_label, key=f"start_{id_d}", type="primary" if is_priority else "secondary"):
                         if id_op_saisie:
                             # Lancer toujours la tâche prioritaire en premier
