@@ -70,6 +70,14 @@ class ProductionStart(BaseModel):
 
 class ProductionEnd(BaseModel):
     demande_id: int
+# ZIDHA BA3D class ProductionEnd
+class StockItem(BaseModel):
+    reference: str
+    famille: str = ""
+    quantite: int = 0
+
+class StockSync(BaseModel):
+    items: list[StockItem]
 
 # ═══════════════════════════════════════════════════════════════════
 # GESTION DES WEBSOCKETS (Pour les Cartes ESP)
@@ -233,6 +241,30 @@ def get_demandes():
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+# Zidha ba3d @app.get("/api/get_demandes")
+
+@app.get("/api/get_stock")
+def get_stock():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT reference, famille, quantite FROM Stock ORDER BY reference ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+@app.post("/api/update_stock")
+def update_stock(data: dict):
+    """Mettre à jour manuellement le stock"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO Stock (reference, famille, quantite) VALUES (?, ?, ?) ON CONFLICT(reference) DO UPDATE SET quantite = ?",
+        (data["reference"], data.get("famille", ""), data["quantite"], data["quantite"])
+    )
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
 @app.post("/api/create_demande")
 async def create_demande(data: DemandeCreate):
@@ -333,6 +365,30 @@ async def signal_panne(data: PanneCreate):
     conn.commit()
     conn.close()
     return {"success": True, "message": "Panne signalée"}
+# ZIDHA BA3D /api/signal_panne
+
+@app.get("/api/get_stock")
+def get_stock():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT reference, quantite FROM Stock ORDER BY reference ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+@app.post("/api/sync_stock")
+def sync_stock(data: StockSync):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    for item in data.items:
+        cursor.execute("""
+            INSERT INTO Stock (reference, quantite) VALUES (?, ?)
+            ON CONFLICT(reference) DO UPDATE SET quantite = ?
+        """, (item.reference, item.quantite, item.quantite))
+    conn.commit()
+    conn.close()
+    return {"success": True, "synced": len(data.items)}
 
 # --- ROUTES CARTES / BOUTONS ---
 
