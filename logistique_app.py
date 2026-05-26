@@ -325,20 +325,10 @@ if "panier" not in st.session_state:
 st.markdown("---")
 st.subheader(" Nouvelle Demande de Production")
 
-# APRÈS (API enligne ✅)
-def get_stock_api():
-    try:
-        stock_resp = requests.get(f"{API_URL}/api/get_stock", timeout=10)
-        if stock_resp.status_code == 200:
-            df_stock_info = pd.DataFrame(stock_resp.json())
-        else:
-            df_stock_info = pd.DataFrame(columns=["reference", "quantite"])
-    except Exception:
-        df_stock_info = pd.DataFrame(columns=["reference", "quantite"])
-    return df_stock_info
-    df_stock_info = pd.DataFrame(columns=["reference", "quantite"])
-
-df_stock_info = get_stock_api()
+# Récupérer stock localement
+conn_local = sqlite3.connect(DB_PATH)
+df_stock_info = pd.read_sql_query("SELECT reference, quantite FROM Stock", conn_local)
+conn_local.close()
 
 with st.container():
     c1, c2 = st.columns(2)
@@ -370,83 +360,31 @@ if st.session_state.panier:
     
     col_b1, col_b2 = st.columns(2)
     with col_b1:
-        if st.button("Annuler tout", use_container_width=True):
+        if st.button(" Annuler tout", use_container_width=True):
             st.session_state.panier = []
             st.rerun()
     with col_b2:
-        if st.button("Envoyer au montage", type="primary", use_container_width=True):
-
-            # VERIFICATION STOCK ENLIGNE
-            try:
-                stock_response = requests.get(f"{API_URL}/api/get_stock", timeout=10)
-                if stock_response.status_code == 200:
-                    stock_dict = {item["reference"]: item["quantite"] for item in stock_response.json()}
-                else:
-                    st.error("❌ Impossible de vérifier le stock (erreur API)")
-                    st.stop()
-            except Exception as e:
-                st.error(f"❌ Erreur connexion stock: {e}")
-                st.stop()
-
-            a_produire = []      # références qui nécessitent production
-            deja_en_stock = []   # références déjà couvertes par le stock
-
+        if st.button(" Envoyer au montage", type="primary", use_container_width=True):
+            success_count = 0
             for item in st.session_state.panier:
-                ref = item["reference"]
-                qte_demandee = item["quantite"]
-                stock_dispo = stock_dict.get(ref, 0)
-                qte_manquante = qte_demandee - stock_dispo
-
-                if stock_dispo >= qte_demandee:
-                    # Stock suffisant — pas besoin de produire
-                    deja_en_stock.append({
-                        "ref": ref,
-                        "stock": stock_dispo,
-                        "demande": qte_demandee
-                    })
-                else:
-                    # Stock insuffisant — produire uniquement la quantité manquante
-                    a_produire.append({
-                        "reference": ref,
-                        "quantite": qte_manquante,   # ← juste le manque
+                for s in ['A', 'B']:
+                    data = {
+                        "reference": item["reference"],
+                        "quantite": item["quantite"],
                         "date_besoin": item["date_besoin"],
+                        "shift": s,
                         "urgence": item["urgence"]
-                    })
-
-            # Afficher les références déjà en stock
-            if deja_en_stock:
-                for s in deja_en_stock:
-                    st.info(
-                        f"✅ **{s['ref']}** — Déjà disponible en stock "
-                        f"({s['stock']} unités disponibles, {s['demande']} demandées). "
-                        f"Aucune production nécessaire."
-                    )
-
-            # Envoyer uniquement les demandes avec quantité manquante
-            if a_produire:
-                success_count = 0
-                for item in a_produire:
-                    for s in ['A', 'B']:
-                        data = {
-                            "reference": item["reference"],
-                            "quantite": item["quantite"],   # ← quantité manquante
-                            "date_besoin": item["date_besoin"],
-                            "shift": s,
-                            "urgence": item["urgence"]
-                        }
-                        if create_demande_api(data):
-                            success_count += 1
-
-                if success_count > 0:
-                    st.success(f"✅ {len(a_produire)} demande(s) envoyée(s) — quantités manquantes uniquement.")
-                else:
-                    st.error("❌ Erreur lors de l'envoi des demandes")
-
-            if not a_produire and not deja_en_stock:
-                st.warning("⚠️ Panier vide.")
-
+                    }
+                    if create_demande_api(data):
+                        success_count += 1
+            
             st.session_state.panier = []
+            if success_count > 0:
+                st.success(f"Demandes envoyées avec succès ! ({success_count} créées)")
+            else:
+                st.error("Erreur lors de l'envoi des demandes")
             st.rerun()
+
 # ═══════════════════════════════════════════════════════════════════
 # SUPERVISION GRAPHIQUE (mil API)
 # ═══════════════════════════════════════════════════════════════════
