@@ -2,16 +2,16 @@ import streamlit as st
 import requests
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
-
+ 
 API_URL = "https://pfe-api-uju4.onrender.com"
-
+ 
 st.set_page_config(page_title="Poste Soudure Ultrasons")
 st_autorefresh(interval=5000, key="main_refresh")
-
+ 
 # ═══════════════════════════════════════════════════════════════════
 # FONCTIONS API
 # ═══════════════════════════════════════════════════════════════════
-
+ 
 def get_tasks_api(shift):
     try:
         response = requests.get(f"{API_URL}/api/operateur_tasks?shift={shift}", timeout=10)
@@ -20,7 +20,7 @@ def get_tasks_api(shift):
     except Exception as e:
         st.error(f"Erreur connexion API: {e}")
     return []
-
+ 
 def start_production_api(demande_id, operateur_id):
     try:
         response = requests.post(
@@ -31,7 +31,7 @@ def start_production_api(demande_id, operateur_id):
         return response.status_code == 200
     except:
         return False
-
+ 
 def terminer_production_api(demande_id):
     try:
         response = requests.post(
@@ -42,7 +42,7 @@ def terminer_production_api(demande_id):
         return response.status_code == 200
     except:
         return False
-
+ 
 def signal_panne_api(operateur_id, cause):
     try:
         response = requests.post(
@@ -53,19 +53,31 @@ def signal_panne_api(operateur_id, cause):
         return response.status_code == 200
     except:
         return False
-
+ 
 # ═══════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
-
+ 
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur")
     shift = st.radio("Shift", ["A", "B"], horizontal=True)
-
+ 
+    # Ki tbaddel shift → eb3at lil API (ESP32 yitba3)
+    if "last_shift" not in st.session_state:
+        st.session_state.last_shift = shift
+ 
+    if shift != st.session_state.last_shift:
+        try:
+            requests.post(f"{API_URL}/api/set_shift", json={"shift": shift}, timeout=5)
+            st.session_state.last_shift = shift
+            st.success(f"✅ Shift changé vers {shift}")
+        except:
+            st.warning("⚠️ Impossible de notifier l'ESP32")
+ 
     st.subheader("Signalement Panne")
     cause = st.text_input("Cause de la panne")
-
+ 
     if st.button("Signaler Panne"):
         if cause and id_op_saisie:
             if signal_panne_api(id_op_saisie, cause):
@@ -74,52 +86,85 @@ with st.sidebar:
                 st.error("Erreur API")
         else:
             st.warning("ID + cause obligatoires")
-
+ 
 # ═══════════════════════════════════════════════════════════════════
 # TITRE
 # ═══════════════════════════════════════════════════════════════════
-
-st.title(f"Poste Soudure Ultrasons - Shift {shift}")
-
+ 
+st.title(f"Poste Soudure Ultrasons — Shift {shift}")
+ 
 # ═══════════════════════════════════════════════════════════════════
-# RECUPERATION TACHES (mil API)
+# RECUPERATION TACHES (mil API — triées par urgence)
 # ═══════════════════════════════════════════════════════════════════
-
+ 
 tasks = get_tasks_api(shift)
-
+ 
 if tasks:
     for task in tasks:
-        id_d = task["id"]
-        module = task.get("reference", "N/A")
-        qte = task["quantite"]
-        statut = task["statut"]
+        id_d    = task["id"]
+        module  = task.get("reference", "N/A")
+        qte     = task["quantite"]
+        statut  = task["statut"]
         urgence = task.get("urgence", "Normal")
-
-        # Couleur selon urgence
+        date_besoin = task.get("date_besoin", "—")
+ 
+        # ── Couleur urgence ──────────────────────────
         if urgence == "Critique":
-            border_color = "#ff4b4b"
+            urgence_color = "#ff4b4b"
+            urgence_icon  = "🔴"
         elif urgence == "Urgent":
-            border_color = "#ffa421"
+            urgence_color = "#ffa421"
+            urgence_icon  = "🟠"
         else:
-            border_color = "#262730"
-
-        with st.expander(f"{module} | Qte {qte} | ID {id_d} | {urgence}"):
+            urgence_color = "#4b9bff"
+            urgence_icon  = "🔵"
+ 
+        # ── Couleur statut ───────────────────────────
+        if "En cours" in statut:
+            statut_color = "#00cc44"
+            statut_icon  = "🟢"
+        elif "En attente" in statut:
+            statut_color = "#ffa421"
+            statut_icon  = "🟠"
+        else:
+            statut_color = "#888888"
+            statut_icon  = "⚪"
+ 
+        with st.expander(f"{urgence_icon} {module} | Qté {qte} | {urgence} | ID {id_d}"):
             st.markdown(f"""
-                <div style='border-left: 4px solid {border_color}; padding-left: 10px;'>
-                    <b>Référence:</b> {module}<br>
-                    <b>Quantité:</b> {qte}<br>
-                    <b>Urgence:</b> {urgence}<br>
-                    <b>Statut:</b> {statut}
+                <div style='border-left: 4px solid {urgence_color}; padding-left: 12px; line-height: 2;'>
+                    <table style='width:100%; border-collapse:collapse;'>
+                        <tr>
+                            <td style='width:40%;'><b>Référence</b></td>
+                            <td>{module}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Quantité</b></td>
+                            <td>{qte}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Date besoin</b></td>
+                            <td>{date_besoin}</td>
+                        </tr>
+                        <tr>
+                            <td><b>Urgence</b></td>
+                            <td><span style='color:{urgence_color}; font-weight:bold;'>{urgence_icon} {urgence}</span></td>
+                        </tr>
+                        <tr>
+                            <td><b>Statut</b></td>
+                            <td><span style='color:{statut_color}; font-weight:bold;'>{statut_icon} {statut}</span></td>
+                        </tr>
+                    </table>
                 </div>
             """, unsafe_allow_html=True)
-
+ 
             col1, col2 = st.columns(2)
-
+ 
             with col1:
                 if "En cours" in statut:
                     st.button("Production en cours", disabled=True, key=f"disabled_{id_d}")
                 else:
-                    if st.button("Lancer production", key=f"start_{id_d}"):
+                    if st.button("▶ Lancer production", key=f"start_{id_d}"):
                         if id_op_saisie:
                             if start_production_api(id_d, id_op_saisie):
                                 st.success("Production démarrée !")
@@ -128,21 +173,16 @@ if tasks:
                                 st.error("Erreur lors du démarrage")
                         else:
                             st.warning("Entrez votre ID d'abord !")
-
+ 
             with col2:
-                if st.button("Terminer", key=f"end_{id_d}"):
+                if st.button("✅ Terminer", key=f"end_{id_d}"):
                     if terminer_production_api(id_d):
                         st.success("Production terminée !")
                         st.rerun()
                     else:
                         st.error("Erreur lors de la terminaison")
-
-            if "En attente" in statut:
-                st.warning("🟠 EN ATTENTE")
-            elif "En cours" in statut:
-                st.info("🟢 EN COURS")
-
+ 
 elif tasks == []:
-    st.success("Aucune tâche active")
+    st.success("✅ Aucune tâche active pour ce shift")
 else:
     st.error("Erreur lors du chargement des tâches")
