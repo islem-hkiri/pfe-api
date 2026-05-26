@@ -63,85 +63,86 @@ def resoudre_pannes_api():
 # SIDEBAR & KPI (mil API)
 # ═══════════════════════════════════════════════════════════════════
 
-st.sidebar.title("📊 Tableau de Bord")
+st.sidebar.title(" Tableau de Bord")
 
-# Récupérer les données fraîches mil API
-try:
-    resp = requests.get(f"{API_URL}/api/get_demandes", timeout=10)
-    demandes = resp.json() if resp.status_code == 200 else []
-except:
-    demandes = []
+# Récupérer les données de l'API
+demandes = get_demandes_api()
 
 if demandes:
     df_demandes = pd.DataFrame(demandes)
-
-    # ── KPIs principaux ──────────────────────────
-    total     = len(df_demandes)
-    termine   = len(df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)])
-    en_cours  = len(df_demandes[df_demandes['statut'].str.contains('En cours', na=False)])
-    en_attente= len(df_demandes[df_demandes['statut'].str.contains('En attente|attente', na=False)])
-
-    st.sidebar.metric("Total demandes",  total)
-    st.sidebar.metric("✅ Terminées",    termine)
-
-    # ── Temps moyen ──────────────────────────────
-    df_term = df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)].copy()
-    if not df_term.empty and 'debut_production' in df_term.columns and 'fin_production' in df_term.columns:
-        df_term['duree'] = (
-            pd.to_datetime(df_term['fin_production'],  errors='coerce') -
-            pd.to_datetime(df_term['debut_production'], errors='coerce')
-        )
-        moy = df_term['duree'].dt.total_seconds().dropna()
-        st.sidebar.metric("⏱ Temps moyen (s)", int(moy.mean()) if len(moy) else 0)
-    else:
-        st.sidebar.metric("⏱ Temps moyen (s)", 0)
-
-    # ── Taux d'occupation (aujourd'hui) ──────────
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📈 Performance (KPI)")
-    TEMPS_SHIFT_SEC = 8 * 3600
-    today = datetime.now().strftime('%Y-%m-%d')
-
-    if not df_term.empty and 'fin_production' in df_term.columns:
-        df_today = df_term[df_term['fin_production'].str.startswith(today, na=False)].copy()
-        if not df_today.empty and 'duree' in df_today.columns:
-            total_sec = df_today['duree'].dt.total_seconds().dropna().sum()
-            taux = min(int((total_sec / TEMPS_SHIFT_SEC) * 100), 100)
-            st.sidebar.metric("Taux d'Occupation Jour", f"{taux}%")
-            st.sidebar.progress(taux / 100)
-            if taux > 85:
-                st.sidebar.warning("⚠️ Charge élevée détectée !")
+    
+    # KPI Total
+    total = len(df_demandes)
+    termine = len(df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)])
+    
+    st.sidebar.metric("Total demandes", total)
+    st.sidebar.metric("Terminées", termine)
+    
+    # KPI Temps moyen
+    df_termines = df_demandes[df_demandes['statut'].str.contains('Terminé', na=False)]
+    if not df_termines.empty and 'debut_production' in df_termines.columns and 'fin_production' in df_termines.columns:
+        df_termines['duree'] = pd.to_datetime(df_termines['fin_production'], errors='coerce') - pd.to_datetime(df_termines['debut_production'], errors='coerce')
+        duree_moyenne = df_termines['duree'].dt.total_seconds().mean()
+        if pd.notna(duree_moyenne):
+            st.sidebar.metric("Temps moyen (s)", int(duree_moyenne))
         else:
-            st.sidebar.metric("Taux d'Occupation Jour", "0%")
-            st.sidebar.progress(0)
+            st.sidebar.metric("Temps moyen (s)", "0")
     else:
-        st.sidebar.metric("Taux d'Occupation Jour", "0%")
-        st.sidebar.progress(0)
-
-    # ── Répartition urgences ──────────────────────
+        st.sidebar.metric("Temps moyen (s)", "0")
+    
+    # KPI Occupation
+    st.sidebar.markdown("---")
+    st.sidebar.subheader(" Performance (KPI)")
+    TEMPS_SHIFT_SEC = 8 * 3600
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    df_today = df_termines[df_termines['fin_production'].str.contains(today, na=False)] if 'fin_production' in df_termines.columns else pd.DataFrame()
+    
+    if not df_today.empty:
+        df_today['duree_sec'] = df_today['duree'].dt.total_seconds()
+        total_sec = df_today['duree_sec'].sum()
+        taux = (total_sec / TEMPS_SHIFT_SEC) * 100
+        taux_clean = min(int(taux), 100)
+        st.sidebar.metric("Taux d'Occupation Jour", f"{taux_clean}%")
+        st.sidebar.progress(taux_clean / 100)
+        if taux > 85:
+            st.sidebar.warning(" Charge élevée détectée !")
+    else:
+        st.sidebar.info("Attente de données de production...")
+    
+    # KPI Urgence
     if 'urgence' in df_demandes.columns:
         df_urg = df_demandes['urgence'].value_counts().reset_index()
         df_urg.columns = ['urgence', 'total']
         if not df_urg.empty:
             st.sidebar.bar_chart(df_urg.set_index("urgence"))
-
 else:
-    st.sidebar.metric("Total demandes",  0)
-    st.sidebar.metric("✅ Terminées",    0)
-    st.sidebar.metric("⏱ Temps moyen (s)", 0)
+    st.sidebar.metric("Total demandes", 0)
+    st.sidebar.metric("Terminées", 0)
+    st.sidebar.metric("Temps moyen (s)", "0")
 
-# ── Historique journalier ─────────────────────────
+# Historique
 st.sidebar.markdown("---")
 try:
     if demandes:
         df_hist = pd.DataFrame(demandes)
-        df_hist = df_hist[~df_hist['statut'].str.contains('Archivé', na=False)]
-        if 'fin_production' in df_hist.columns:
-            df_hist['jour'] = pd.to_datetime(df_hist['fin_production'], errors='coerce').dt.date
-            df_hist_group = df_hist.dropna(subset=['jour']).groupby('jour').size().reset_index(name='total').tail(10)
+        if 'heure_demande' in df_hist.columns and 'statut' in df_hist.columns:
+            df_hist = df_hist[~df_hist['statut'].str.contains('Archivé', na=False)]
+            df_hist_group = df_hist.groupby('heure_demande').size().reset_index(name='Nb_Refs').tail(10)
+            
             if not df_hist_group.empty:
-                st.sidebar.subheader("📅 Historique")
-                st.sidebar.dataframe(df_hist_group, use_container_width=True)
+                if st.sidebar.button("Vider l'historique", use_container_width=True):
+                    # Archiver via API
+                    conn_local = sqlite3.connect(DB_PATH)
+                    conn_local.execute("UPDATE Demandes SET statut = 'Archivé' WHERE statut != 'Archivé'")
+                    conn_local.commit()
+                    conn_local.close()
+                    st.rerun()
+                
+                for _, row in df_hist_group.iterrows():
+                    with st.sidebar.expander(f"Liste du {row['heure_demande']}"):
+                        details = df_hist[df_hist['heure_demande'] == row['heure_demande']][['reference', 'quantite', 'statut']]
+                        st.dataframe(details, use_container_width=True)
 except Exception as e:
     st.sidebar.error(f"Erreur historique: {e}")
 
@@ -212,8 +213,8 @@ try:
                 total_attente = len(df_suivi[df_suivi['statut'].str.contains('attente', na=False)])
                 
                 cols = st.columns(3)
-                cols[0].metric("🟢En cours", total_encours)
-                cols[1].metric("🟠En attente", total_attente)
+                cols[0].metric("🟢 En cours", total_encours)
+                cols[1].metric("🟠 En attente", total_attente)
                 cols[2].metric("📊 Total actif", len(df_suivi))
                 
                 st.markdown("---")
@@ -263,7 +264,7 @@ try:
                                 border-radius: 5px;
                                 margin: 5px 0;
                             '>
-                                <h4 style='color: {border_color}; margin-top: 0;'>{module}</h4>
+                                <h4 style='color: {border_color}; margin-top: 0;'>📦 {module}</h4>
                                 <table style='width: 100%; color: white;'>
                                     <tr><td><b>ID:</b></td><td>#{id_d}</td></tr>
                                     <tr><td><b>Quantité:</b></td><td>{qte} unités</td></tr>
