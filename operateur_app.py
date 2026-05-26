@@ -55,6 +55,33 @@ def signal_panne_api(operateur_id, cause):
         return False
 
 # ═══════════════════════════════════════════════════════════════════
+# AUTO-LANCEMENT: lance automatiquement la tâche la plus urgente
+# si aucune n'est en cours et qu'un opérateur est identifié
+# ═══════════════════════════════════════════════════════════════════
+
+def auto_lancer_premiere_tache(tasks, operateur_id):
+    """
+    Ki ma kaynch tâche En cours,
+    tlanca automatiquement l'awla tâche (akther urgence) fil liste.
+    """
+    if not operateur_id:
+        return False
+
+    # Vérifier si une tâche est déjà en cours
+    en_cours = any("En cours" in t.get("statut", "") for t in tasks)
+    if en_cours:
+        return False
+
+    # Prendre la première tâche en attente (déjà triée par urgence côté API)
+    premiere = next((t for t in tasks if "En attente" in t.get("statut", "") or t.get("statut", "") == "En attente"), None)
+    if not premiere:
+        return False
+
+    # Lancer automatiquement
+    success = start_production_api(premiere["id"], operateur_id)
+    return success
+
+# ═══════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
 
@@ -63,7 +90,6 @@ with st.sidebar:
     id_op_saisie = st.text_input("ID Operateur")
     shift = st.radio("Shift", ["A", "B"], horizontal=True)
 
-    # Ki tbaddel shift → eb3at lil API
     if "last_shift" not in st.session_state:
         st.session_state.last_shift = shift
 
@@ -94,12 +120,31 @@ with st.sidebar:
 st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 
 # ═══════════════════════════════════════════════════════════════════
-# RECUPERATION TACHES (mil API)
+# RECUPERATION TACHES (trié par urgence côté API)
 # ═══════════════════════════════════════════════════════════════════
 
 tasks = get_tasks_api(shift)
 
 if tasks:
+
+    # ─── AUTO-LANCEMENT ───────────────────────────────────────────
+    # Ki kayn ID opérateur w ma kaynch tâche en cours →
+    # tlanca automatiquement l'awla tâche (akther urgence)
+    if id_op_saisie:
+        auto_key = f"auto_launched_{shift}"
+        en_cours_exists = any("En cours" in t.get("statut", "") for t in tasks)
+
+        if not en_cours_exists and not st.session_state.get(auto_key):
+            launched = auto_lancer_premiere_tache(tasks, id_op_saisie)
+            if launched:
+                st.session_state[auto_key] = True
+                st.toast("🚀 Tâche la plus urgente lancée automatiquement !", icon="✅")
+                st.rerun()
+        elif en_cours_exists:
+            # Reset le flag ki la tâche en cours est terminée
+            st.session_state[auto_key] = False
+    # ──────────────────────────────────────────────────────────────
+
     for task in tasks:
         id_d = task["id"]
         module = task.get("reference", "N/A")
@@ -107,15 +152,22 @@ if tasks:
         statut = task["statut"]
         urgence = task.get("urgence", "Normal")
 
-        # Couleur selon urgence
+        # Couleur + badge selon urgence
         if urgence == "Critique":
             border_color = "#ff4b4b"
+            badge = "🔴 CRITIQUE"
         elif urgence == "Urgent":
             border_color = "#ffa421"
+            badge = "🟠 URGENT"
         else:
             border_color = "#262730"
+            badge = "🟢 NORMAL"
 
-        with st.expander(f"{module} | Qte {qte} | ID {id_d} | {urgence}"):
+        # Indiquer visuellement la tâche active (en cours)
+        is_en_cours = "En cours" in statut
+        expander_label = f"{'▶️ ' if is_en_cours else ''}{module} | Qté {qte} | ID {id_d} | {badge}"
+
+        with st.expander(expander_label, expanded=is_en_cours):
             st.markdown(f"""
                 <div style='border-left: 4px solid {border_color}; padding-left: 10px;'>
                     <b>Référence:</b> {module}<br>
@@ -128,8 +180,8 @@ if tasks:
             col1, col2 = st.columns(2)
 
             with col1:
-                if "En cours" in statut:
-                    st.button("Production en cours", disabled=True, key=f"disabled_{id_d}")
+                if is_en_cours:
+                    st.button("▶️ Production en cours", disabled=True, key=f"disabled_{id_d}")
                 else:
                     if st.button("Lancer production", key=f"start_{id_d}"):
                         if id_op_saisie:
@@ -142,8 +194,10 @@ if tasks:
                             st.warning("Entrez votre ID d'abord !")
 
             with col2:
-                if st.button("Terminer", key=f"end_{id_d}"):
+                if st.button("Terminer ✅", key=f"end_{id_d}"):
                     if terminer_production_api(id_d):
+                        # Reset auto-launch flag → prochaine tâche sera lancée auto
+                        st.session_state[f"auto_launched_{shift}"] = False
                         st.success("Production terminée !")
                         st.rerun()
                     else:
