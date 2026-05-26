@@ -54,6 +54,17 @@ def signal_panne_api(operateur_id, cause):
     except:
         return False
 
+def set_shift_api(shift):
+    try:
+        response = requests.post(
+            f"{API_URL}/api/set_shift",
+            json={"shift": shift},
+            timeout=5
+        )
+        return response.status_code == 200
+    except:
+        return False
+
 # ═══════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
@@ -61,21 +72,30 @@ def signal_panne_api(operateur_id, cause):
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur")
-    shift = st.radio("Shift", ["A", "B"], horizontal=True)
 
-# Ki tbaddel shift → eb3at lil API
-if "last_shift" not in st.session_state:
-    st.session_state.last_shift = shift
+    # --- SHIFT SELECTOR ---
+    # Initialiser le shift dans session_state si pas encore fait
+    if "active_shift" not in st.session_state:
+        st.session_state.active_shift = "A"
 
-if shift != st.session_state.last_shift:
-    try:
-        requests.post(f"{API_URL}/api/set_shift", json={"shift": shift}, timeout=5)
-        st.session_state.last_shift = shift
-        st.success(f"✅ Shift changé vers {shift}")
-    except:
-        st.warning("⚠️ Impossible de notifier l'ESP32")
+    shift = st.radio("Shift", ["A", "B"], 
+                     index=["A", "B"].index(st.session_state.active_shift),
+                     horizontal=True)
 
-    st.subheader("Signalement Panne")
+    # Ki tbaddel shift → notify API + update session
+    if shift != st.session_state.active_shift:
+        if set_shift_api(shift):
+            st.session_state.active_shift = shift
+            st.success(f"✅ Shift changé vers {shift}")
+        else:
+            st.warning("⚠️ Impossible de notifier l'API")
+            # Revert visuellement au shift précédent
+            shift = st.session_state.active_shift
+
+    st.divider()
+
+    # --- SIGNALEMENT PANNE (toujours visible dans la sidebar) ---
+    st.subheader("🔧 Signalement Panne")
     cause = st.text_input("Cause de la panne")
 
     if st.button("Signaler Panne"):
@@ -87,17 +107,20 @@ if shift != st.session_state.last_shift:
         else:
             st.warning("ID + cause obligatoires")
 
+# Utiliser toujours le shift actif depuis session_state
+active_shift = st.session_state.get("active_shift", "A")
+
 # ═══════════════════════════════════════════════════════════════════
 # TITRE
 # ═══════════════════════════════════════════════════════════════════
 
-st.title(f"Poste Soudure Ultrasons - Shift {shift}")
+st.title(f"Poste Soudure Ultrasons — Shift {active_shift}")
 
 # ═══════════════════════════════════════════════════════════════════
-# RECUPERATION TACHES (mil API)
+# RÉCUPÉRATION TÂCHES (mel shift actif)
 # ═══════════════════════════════════════════════════════════════════
 
-tasks = get_tasks_api(shift)
+tasks = get_tasks_api(active_shift)
 
 if tasks:
     for task in tasks:
@@ -155,6 +178,6 @@ if tasks:
                 st.info("🟢 EN COURS")
 
 elif tasks == []:
-    st.success("Aucune tâche active")
+    st.success("✅ Aucune tâche active pour ce shift")
 else:
     st.error("Erreur lors du chargement des tâches")
