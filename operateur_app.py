@@ -74,23 +74,21 @@ with st.sidebar:
     id_op_saisie = st.text_input("ID Operateur")
 
     # --- SHIFT SELECTOR ---
-    # Initialiser le shift dans session_state si pas encore fait
     if "active_shift" not in st.session_state:
         st.session_state.active_shift = "A"
+    if "prev_shift" not in st.session_state:
+        st.session_state.prev_shift = "A"
 
     shift = st.radio("Shift", ["A", "B"], 
-                     index=["A", "B"].index(st.session_state.active_shift),
+                     key="shift_radio",
                      horizontal=True)
 
-    # Ki tbaddel shift → notify API + update session
-    if shift != st.session_state.active_shift:
-        if set_shift_api(shift):
-            st.session_state.active_shift = shift
-            st.success(f"✅ Shift changé vers {shift}")
-        else:
-            st.warning("⚠️ Impossible de notifier l'API")
-            # Revert visuellement au shift précédent
-            shift = st.session_state.active_shift
+    # Ki tbaddel shift → notify API
+    if shift != st.session_state.prev_shift:
+        st.session_state.prev_shift = shift
+        st.session_state.active_shift = shift
+        set_shift_api(shift)
+        st.rerun()
 
     st.divider()
 
