@@ -54,17 +54,6 @@ def signal_panne_api(operateur_id, cause):
     except:
         return False
 
-def set_shift_api(shift):
-    try:
-        response = requests.post(
-            f"{API_URL}/api/set_shift",
-            json={"shift": shift},
-            timeout=5
-        )
-        return response.status_code == 200
-    except:
-        return False
-
 # ═══════════════════════════════════════════════════════════════════
 # SIDEBAR
 # ═══════════════════════════════════════════════════════════════════
@@ -72,28 +61,9 @@ def set_shift_api(shift):
 with st.sidebar:
     st.title("Identification")
     id_op_saisie = st.text_input("ID Operateur")
+    shift = st.radio("Shift", ["A", "B"], horizontal=True)
 
-    # --- SHIFT SELECTOR ---
-    if "active_shift" not in st.session_state:
-        st.session_state.active_shift = "A"
-    if "prev_shift" not in st.session_state:
-        st.session_state.prev_shift = "A"
-
-    shift = st.radio("Shift", ["A", "B"], 
-                     key="shift_radio",
-                     horizontal=True)
-
-    # Ki tbaddel shift → notify API
-    if shift != st.session_state.prev_shift:
-        st.session_state.prev_shift = shift
-        st.session_state.active_shift = shift
-        set_shift_api(shift)
-        st.rerun()
-
-    st.divider()
-
-    # --- SIGNALEMENT PANNE (toujours visible dans la sidebar) ---
-    st.subheader("🔧 Signalement Panne")
+    st.subheader("Signalement Panne")
     cause = st.text_input("Cause de la panne")
 
     if st.button("Signaler Panne"):
@@ -105,20 +75,17 @@ with st.sidebar:
         else:
             st.warning("ID + cause obligatoires")
 
-# Utiliser toujours le shift actif depuis session_state
-active_shift = st.session_state.get("active_shift", "A")
-
 # ═══════════════════════════════════════════════════════════════════
 # TITRE
 # ═══════════════════════════════════════════════════════════════════
 
-st.title(f"Poste Soudure Ultrasons — Shift {active_shift}")
+st.title(f"Poste Soudure Ultrasons - Shift {shift}")
 
 # ═══════════════════════════════════════════════════════════════════
-# RÉCUPÉRATION TÂCHES (mel shift actif)
+# RECUPERATION TACHES (mil API)
 # ═══════════════════════════════════════════════════════════════════
 
-tasks = get_tasks_api(active_shift)
+tasks = get_tasks_api(shift)
 
 if tasks:
     for task in tasks:
@@ -176,6 +143,6 @@ if tasks:
                 st.info("🟢 EN COURS")
 
 elif tasks == []:
-    st.success("✅ Aucune tâche active pour ce shift")
+    st.success("Aucune tâche active")
 else:
     st.error("Erreur lors du chargement des tâches")
