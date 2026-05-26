@@ -424,8 +424,8 @@ def sync_stock(data: StockSync):
     for item in data.items:
         cursor.execute("""
             INSERT INTO Stock (reference, quantite) VALUES (?, ?)
-            ON CONFLICT(reference) DO UPDATE SET quantite = ?
-        """, (item.reference, item.quantite, item.quantite))
+            ON CONFLICT(reference) DO NOTHING
+        """, (item.reference, item.quantite))
     conn.commit()
     conn.close()
     return {"success": True, "synced": len(data.items)}
